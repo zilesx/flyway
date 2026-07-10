@@ -32,3 +32,13 @@ This repository currently contains the interactive interface prototype. Producti
 ## Privacy model
 
 Exact coordinates must never be returned to other hunters. Reports should be stored privately and transformed into coarse, randomized activity zones before being displayed. Location access logs and raw coordinates should have short retention periods.
+
+## Docker API
+
+Run the API on the same server as Supabase without exposing either service directly:
+
+```bash
+docker compose --env-file .env -f docker-compose.api.yml up -d --build
+```
+
+The API binds to `127.0.0.1:3001`, reaches Supabase through the Docker host at port `8000`, and is intended to sit behind a Cloudflare Tunnel at `api.yourdomain.com`. The web and mobile apps should call the Flyway API only.
