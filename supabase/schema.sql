@@ -10,6 +10,7 @@ create table public.profiles (
   trust_score smallint not null default 50 check (trust_score between 0 and 100),
   report_count integer not null default 0,
   confirmed_count integer not null default 0,
+  preferences jsonb not null default '{"visible_groups":["ducks","geese","cranes"],"default_days":7,"start_view":"us","auto_open_card":true}'::jsonb check (jsonb_typeof(preferences) = 'object'),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

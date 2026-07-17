@@ -103,6 +103,17 @@ function validateSighting(input) {
   return { latitude, longitude };
 }
 
+const defaultPreferences = { visible_groups: ["ducks", "geese", "cranes"], default_days: 7, start_view: "us", auto_open_card: true };
+function validatePreferences(input = {}) {
+  const groups = Array.isArray(input.visible_groups) ? input.visible_groups.filter(v => ["ducks", "geese", "cranes"].includes(v)) : defaultPreferences.visible_groups;
+  return {
+    visible_groups: [...new Set(groups)],
+    default_days: [1, 7, 30, 90].includes(Number(input.default_days)) ? Number(input.default_days) : 7,
+    start_view: ["us", "world", "my_area"].includes(input.start_view) ? input.start_view : "us",
+    auto_open_card: input.auto_open_card !== false,
+  };
+}
+
 const server = http.createServer(async (req, res) => {
   const origin = req.headers.origin;
   if (req.method === "OPTIONS") { res.writeHead(origin && ALLOWED_ORIGINS.has(origin) ? 204 : 403, cors(origin)); return res.end(); }
@@ -145,7 +156,18 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/profile") {
       const { user } = await currentUser(req);
       await ensureProfile(user);
-      return json(res, 200, { id: user.id, email: user.email, display_name: user.user_metadata?.display_name || user.email?.split("@")[0] }, origin);
+      const rows = await supabase(`/rest/v1/profiles?id=eq.${user.id}&select=display_name,preferences`);
+      return json(res, 200, { id: user.id, email: user.email, display_name: rows[0]?.display_name || user.email?.split("@")[0], preferences: validatePreferences(rows[0]?.preferences) }, origin);
+    }
+
+    if (req.method === "PATCH" && url.pathname === "/api/profile") {
+      rateLimit(req, 30);
+      const { user } = await currentUser(req);
+      await ensureProfile(user);
+      const input = await body(req);
+      const preferences = validatePreferences(input.preferences);
+      await supabase(`/rest/v1/profiles?id=eq.${user.id}`, { method: "PATCH", data: { preferences }, prefer: "return=minimal" });
+      return json(res, 200, { preferences }, origin);
     }
 
     if (req.method === "GET" && url.pathname === "/api/sightings") {
