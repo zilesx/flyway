@@ -1,6 +1,6 @@
 create extension if not exists pgcrypto;
 
-create type public.duck_species as enum ('mallard', 'teal', 'gadwall', 'pintail', 'wood_duck', 'diver', 'mixed', 'other');
+create type public.bird_species as enum ('mallard', 'teal', 'gadwall', 'pintail', 'wood_duck', 'diver', 'mixed', 'other', 'canada_goose', 'snow_goose', 'white_fronted_goose', 'sandhill_crane', 'tundra_swan');
 create type public.sighting_behavior as enum ('feeding', 'circling', 'flying_over', 'resting', 'moving_in');
 create type public.flock_band as enum ('1-10', '10-25', '25-50', '50+');
 
@@ -17,7 +17,7 @@ create table public.profiles (
 create table public.sightings (
   id uuid primary key default gen_random_uuid(),
   reporter_id uuid not null references public.profiles(id) on delete cascade,
-  species public.duck_species not null,
+  species public.bird_species not null,
   flock_size public.flock_band not null,
   behavior public.sighting_behavior not null,
   exact_latitude double precision not null check (exact_latitude between -90 and 90),
@@ -64,9 +64,9 @@ create policy "insert confirmation" on public.confirmations for insert with chec
 create policy "read own confirmations" on public.confirmations for select using (hunter_id = auth.uid());
 create policy "insert flag" on public.flags for insert with check (hunter_id = auth.uid());
 
-create or replace function public.nearby_sightings(p_limit integer default 100)
+create or replace function public.nearby_sightings(p_limit integer default 100, p_since timestamptz default (now() - interval '7 days'))
 returns table (
-  id uuid, species public.duck_species, flock_size public.flock_band,
+  id uuid, species public.bird_species, flock_size public.flock_band,
   behavior public.sighting_behavior, zone_latitude double precision,
   zone_longitude double precision, confidence smallint, occurred_at timestamptz,
   expires_at timestamptz, confirmations bigint
@@ -81,14 +81,14 @@ as $$
     s.confidence, s.occurred_at, s.expires_at, count(c.hunter_id)
   from public.sightings s
   left join public.confirmations c on c.sighting_id = s.id
-  where s.status = 'active' and s.expires_at > now()
+  where s.status = 'active' and s.occurred_at >= greatest(p_since, now() - interval '90 days')
   group by s.id
   order by s.occurred_at desc
   limit least(greatest(p_limit, 1), 250);
 $$;
 
-revoke all on function public.nearby_sightings(integer) from public;
-grant execute on function public.nearby_sightings(integer) to anon, authenticated;
+revoke all on function public.nearby_sightings(integer, timestamptz) from public;
+grant execute on function public.nearby_sightings(integer, timestamptz) to anon, authenticated;
 
 -- Raw sightings are intentionally unavailable to anon/authenticated users.
 revoke select (exact_latitude, exact_longitude, accuracy_meters) on public.sightings from anon, authenticated;

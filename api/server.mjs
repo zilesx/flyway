@@ -91,7 +91,7 @@ async function ensureProfile(user) {
   });
 }
 
-const species = new Set(["mallard", "teal", "gadwall", "pintail", "wood_duck", "diver", "mixed", "other"]);
+const species = new Set(["mallard", "teal", "gadwall", "pintail", "wood_duck", "diver", "mixed", "other", "canada_goose", "snow_goose", "white_fronted_goose", "sandhill_crane", "tundra_swan"]);
 const flockSizes = new Set(["1-10", "10-25", "25-50", "50+"]);
 const behaviors = new Set(["feeding", "circling", "flying_over", "resting", "moving_in"]);
 
@@ -150,7 +150,9 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "GET" && url.pathname === "/api/sightings") {
       rateLimit(req, 120);
-      const rows = await supabase("/rest/v1/rpc/nearby_sightings", { method: "POST", token: ANON_KEY, data: { p_limit: Math.min(Number(url.searchParams.get("limit")) || 100, 250) } });
+      const requestedDays = Number(url.searchParams.get("days")) || 7;
+      const days = [1, 7, 30, 90].includes(requestedDays) ? requestedDays : 7;
+      const rows = await supabase("/rest/v1/rpc/nearby_sightings", { method: "POST", token: ANON_KEY, data: { p_limit: Math.min(Number(url.searchParams.get("limit")) || 100, 250), p_since: new Date(Date.now() - days * 86400000).toISOString() } });
       return json(res, 200, { sightings: rows }, origin);
     }
 
