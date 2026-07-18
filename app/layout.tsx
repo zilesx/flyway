@@ -1,5 +1,10 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./iteration.css";
+import "./security.css";
+import "./admin-settings.css";
+import "./trust-features.css";
+import "./content-tools.css";
 
 export const metadata: Metadata = {
   title: "Flyway — Private Duck Activity",

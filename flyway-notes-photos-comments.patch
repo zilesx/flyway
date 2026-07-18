@@ -1,0 +1,242 @@
+diff --git a/app/page.tsx b/app/page.tsx
+index da49ed4..09017f6 100644
+--- a/app/page.tsx
++++ b/app/page.tsx
+@@ -3,7 +3,8 @@
+ import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
+ 
+ const API = process.env.NEXT_PUBLIC_API_URL || "https://flyway-api.zileslabs.com";
+-type LiveReport = { id:string; species:string; flock_size:string; behavior:string; zone_latitude:number; zone_longitude:number; confidence:number; occurred_at:string; confirmations:number };
++type LiveReport = { id:string; species:string; flock_size:string; behavior:string; zone_latitude:number; zone_longitude:number; confidence:number; occurred_at:string; confirmations:number; notes?:string|null };
++type SightingComment = { id:string; body:string; display_name:string; created_at:string };
+ type MapReport = LiveReport & { x:number; y:number; size:number; color:string; age:string };
+ type Panel = "map" | "activity" | "saved" | "more";
+ type Filter = "all" | "ducks" | "geese" | "cranes";
+@@ -49,6 +50,8 @@ export default function Home(){
+   const [email,setEmail]=useState(""); const [password,setPassword]=useState(""); const [displayName,setDisplayName]=useState(""); const [authError,setAuthError]=useState("");
+   const [token,setToken]=useState(""); const [profile,setProfile]=useState<{display_name:string;preferences?:Preferences}|null>(null);
+   const [species,setSpecies]=useState("Mallard"); const [amount,setAmount]=useState("25–50"); const [behavior,setBehavior]=useState("feeding"); const [status,setStatus]=useState("");
++  const [notes,setNotes]=useState(""); const [photo,setPhoto]=useState<File|null>(null);
++  const [photos,setPhotos]=useState<{id:string;url:string}[]>([]); const [comments,setComments]=useState<SightingComment[]>([]); const [comment,setComment]=useState(""); const [commentStatus,setCommentStatus]=useState("");
+ 
+   const visibleReports=useMemo(()=>reports.filter(r=>preferences.visible_groups.includes(birdGroup(r.species))&&(filter==="all"||filter===birdGroup(r.species))),[reports,filter,preferences.visible_groups]);
+   const savedReports=useMemo(()=>reports.filter(r=>savedIds.includes(r.id)),[reports,savedIds]);
+@@ -59,6 +62,7 @@ export default function Home(){
+   async function load(){ try{ const data=await request(`/api/sightings?days=${timeDays}&limit=250`); const mapped=(data.sightings||[]).map((r:LiveReport)=>({...r,x:position(r.zone_latitude,1),y:position(r.zone_longitude,2),size:r.flock_size==="50+"?108:r.flock_size==="25-50"?92:68,color:colors[r.species]||"gray",age:age(r.occurred_at)})); setReports(mapped); if(mapped[0]) setSelectedId(v=>v||mapped[0].id); } finally{setLoading(false);} }
+   useEffect(()=>{ const resize=()=>setViewport({width:window.innerWidth,height:window.innerHeight});resize();window.addEventListener("resize",resize);setSavedIds(JSON.parse(localStorage.getItem("flyway_saved")||"[]")); const saved=localStorage.getItem("flyway_session"); if(saved){ const s=JSON.parse(saved); setToken(s.access_token); request("/api/profile",{headers:{Authorization:`Bearer ${s.access_token}`}}).then(p=>{setProfile(p);applyPreferences(p.preferences||defaultPreferences);}).catch(()=>localStorage.removeItem("flyway_session")); } return()=>window.removeEventListener("resize",resize); },[]);
+   useEffect(()=>{setLoading(true);load();},[timeDays]);
++  useEffect(()=>{if(!detailId)return;Promise.all([request(`/api/sightings/${detailId}/photos`),request(`/api/sightings/${detailId}/comments`)]).then(([p,c])=>{setPhotos(p.photos||[]);setComments(c.comments||[]);}).catch(()=>{setPhotos([]);setComments([]);});},[detailId]);
+   useEffect(()=>{const close=(event:KeyboardEvent)=>{if(event.key!=="Escape")return;if(authOpen)setAuthOpen(false);else if(reporting)setReporting(false);else if(detailId)setDetailId("");else if(panel!=="map")setPanel("map");else if(cardOpen)setCardOpen(false);};window.addEventListener("keydown",close);return()=>window.removeEventListener("keydown",close);},[authOpen,reporting,detailId,panel,cardOpen]);
+ 
+   function showReport(id:string){ setSelectedId(id); setCardOpen(preferences.auto_open_card); setDetailId(id); setPanel("map"); }
+@@ -76,7 +80,8 @@ export default function Home(){
+   function toggleSaved(id:string){ setSavedIds(current=>{ const next=current.includes(id)?current.filter(x=>x!==id):[...current,id]; localStorage.setItem("flyway_saved",JSON.stringify(next)); return next; }); }
+   async function authenticate(){ setAuthError(""); try{ const data=await request(`/api/auth/${authMode}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,password,display_name:displayName})}); if(!data.access_token){ setAuthError("Check your email to confirm your account, then sign in."); setAuthMode("login"); return; } localStorage.setItem("flyway_session",JSON.stringify(data)); setToken(data.access_token); const p=await request("/api/profile",{headers:{Authorization:`Bearer ${data.access_token}`}}); setProfile(p); applyPreferences(p.preferences||defaultPreferences); setAuthOpen(false); }catch(e){setAuthError(e instanceof Error?e.message:"Sign in failed");} }
+   function openReport(){ if(!token){setAuthOpen(true);return;} setReporting(true); }
+-  async function submit(){ setStatus("Getting protected location…"); navigator.geolocation.getCurrentPosition(async pos=>{ try{ setStatus("Sharing activity…"); await request("/api/sightings",{method:"POST",headers:{Authorization:`Bearer ${token}`,"Content-Type":"application/json"},body:JSON.stringify({species:speciesValues[species],flock_size:amountValues[amount],behavior,latitude:pos.coords.latitude,longitude:pos.coords.longitude,accuracy_meters:Math.round(pos.coords.accuracy)})}); setStatus("Activity shared. Your exact location stays private."); await load(); setTimeout(()=>{setReporting(false);setStatus("");},1400); }catch(e){setStatus(e instanceof Error?e.message:"Could not share report");} },()=>setStatus("Location permission is required to report activity."),{enableHighAccuracy:true,timeout:12000}); }
++  async function submit(){ setStatus("Getting protected location…"); navigator.geolocation.getCurrentPosition(async pos=>{ try{ setStatus("Sharing activity…"); const created=await request("/api/sightings",{method:"POST",headers:{Authorization:`Bearer ${token}`,"Content-Type":"application/json"},body:JSON.stringify({species:speciesValues[species],flock_size:amountValues[amount],behavior,notes,latitude:pos.coords.latitude,longitude:pos.coords.longitude,accuracy_meters:Math.round(pos.coords.accuracy)})}); if(photo){setStatus("Uploading photo…");await request(`/api/sightings/${created.id}/photos`,{method:"POST",headers:{Authorization:`Bearer ${token}`,"Content-Type":photo.type},body:photo});} setStatus("Activity shared. Your exact location stays private.");setNotes("");setPhoto(null);await load(); setTimeout(()=>{setReporting(false);setStatus("");},1400); }catch(e){setStatus(e instanceof Error?e.message:"Could not share report");} },()=>setStatus("Location permission is required to report activity."),{enableHighAccuracy:true,timeout:12000}); }
++  async function postComment(){if(!token){setAuthOpen(true);return;}if(!detail||!comment.trim())return;setCommentStatus("Posting…");try{await request(`/api/sightings/${detail.id}/comments`,{method:"POST",headers:{Authorization:`Bearer ${token}`,"Content-Type":"application/json"},body:JSON.stringify({body:comment})});setComment("");const data=await request(`/api/sightings/${detail.id}/comments`);setComments(data.comments||[]);setCommentStatus("");}catch(e){setCommentStatus(e instanceof Error?e.message:"Could not post comment");}}
+   async function confirm(){ if(!token){setAuthOpen(true);return;} if(!selected)return; await request(`/api/sightings/${selected.id}/confirm`,{method:"POST",headers:{Authorization:`Bearer ${token}`}}); await load(); }
+   async function logout(){ try{await request("/api/auth/logout",{method:"POST",headers:{Authorization:`Bearer ${token}`}});}catch{} localStorage.removeItem("flyway_session");setToken("");setProfile(null);setPanel("map"); }
+ 
+@@ -95,8 +100,8 @@ export default function Home(){
+     {panel!=="map"&&<div className="panel-backdrop" onClick={()=>setPanel("map")}><section className="content-panel" onClick={e=>e.stopPropagation()}><div className="panel-head"><div><span className="eyebrow">FLYWAY NETWORK</span><h2>{panel==="activity"?"Recent activity":panel==="saved"?"Saved sightings":"Your account"}</h2></div><div className="panel-actions">{panel==="activity"&&<button onClick={load}>↻ Refresh</button>}<button className="panel-close" onClick={()=>setPanel("map")} aria-label="Close and return to map">×</button></div></div>{panel==="activity"&&reportList(reports,"No recent reports yet.")}{panel==="saved"&&reportList(savedReports,"Save useful sightings from the map and they’ll appear here on this device.")}{panel==="more"&&<div className="account-card"><div className="account-avatar">{profile?.display_name?.slice(0,2).toUpperCase()||"IN"}</div><h3>{profile?.display_name||"Hunter"}</h3><p>Preferences follow your account across devices. Exact report coordinates always remain protected.</p><div className="preferences-form"><div className="preference-block"><span>BIRD VISIBILITY</span><small>Choose which groups appear on your map.</small><div className="preference-toggles">{(["ducks","geese","cranes"] as const).map(group=><button key={group} className={preferences.visible_groups.includes(group)?"active":""} onClick={()=>savePreferences({...preferences,visible_groups:preferences.visible_groups.includes(group)?preferences.visible_groups.filter(g=>g!==group):[...preferences.visible_groups,group]})}><b>{preferences.visible_groups.includes(group)?"✓":""}</b>{group[0].toUpperCase()+group.slice(1)}</button>)}</div></div><label className="preference-row"><span><b>Default history</b><small>Initial age range for sightings</small></span><select value={preferences.default_days} onChange={e=>savePreferences({...preferences,default_days:Number(e.target.value)})}><option value={1}>24 hours</option><option value={7}>7 days</option><option value={30}>30 days</option><option value={90}>90 days</option></select></label><label className="preference-row"><span><b>Starting map</b><small>View used after sign-in</small></span><select value={preferences.start_view} onChange={e=>savePreferences({...preferences,start_view:e.target.value as Preferences["start_view"]})}><option value="us">United States</option><option value="world">World</option><option value="my_area">My area</option></select></label><label className="preference-row"><span><b>Open activity card</b><small>Show the summary after selecting a marker</small></span><input type="checkbox" checked={preferences.auto_open_card} onChange={e=>savePreferences({...preferences,auto_open_card:e.target.checked})}/></label>{preferencesStatus&&<div className="preference-status">{preferencesStatus}</div>}</div><button className="signout-button" onClick={logout}>Sign out</button></div>}</section></div>}
+     <nav className="bottom-nav"><button className={panel==="map"?"active":""} onClick={()=>setPanel("map")}><span className="icon">⌖</span>Map</button><button className={panel==="activity"?"active":""} onClick={()=>setPanel("activity")}><span className="icon">≡</span>Activity</button><button className="report-button" onClick={openReport}><span>＋</span>Report birds</button><button className={panel==="saved"?"active":""} onClick={()=>setPanel("saved")}><span className="icon">☆</span>Saved</button><button className={panel==="more"?"active":""} onClick={()=>profile?setPanel("more"):setAuthOpen(true)}><span className="icon">◌</span>{profile?"Account":"Sign in"}</button></nav>
+   </section>
+-  {detail&&<div className="modal-wrap" onClick={()=>setDetailId("")}><article className="modal detail-modal" onClick={e=>e.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">PROTECTED ACTIVITY ZONE · {detail.age.toUpperCase()} AGO</span><h2>{labels[detail.species]}</h2></div><button onClick={()=>setDetailId("")} aria-label="Close details">×</button></div><div className="detail-hero"><div className={`duck-badge ${detail.color}`}>⌁</div><div><b>{detail.flock_size} birds</b><span>{labels[detail.behavior]}</span></div><div className="detail-confidence"><b>{detail.confidence}%</b><span>confidence</span></div></div><div className="detail-grid"><div><span>REPORTED</span><b>{new Date(detail.occurred_at).toLocaleString()}</b></div><div><span>COMMUNITY</span><b>{detail.confirmations} confirmations</b></div><div><span>LOCATION</span><b>Randomized activity zone</b></div><div><span>SPECIES GROUP</span><b>{detail.species==="sandhill_crane"?"Crane":geese.has(detail.species)?"Goose / swan":"Duck"}</b></div></div><div className="shield"><span>◉</span><div><b>Exact location hidden</b><p>The map displays a randomized zone. The reporting hunter’s exact coordinates, route, and blind are never shown.</p></div></div><div className="detail-actions"><button className={`save-detail ${savedIds.includes(detail.id)?"saved":""}`} onClick={()=>toggleSaved(detail.id)}>{savedIds.includes(detail.id)?"★ Saved":"☆ Save sighting"}</button><button className="confirm-btn" onClick={confirm}>✓ Confirm activity</button></div></article></div>}
+-  {reporting&&<div className="modal-wrap" onClick={()=>setReporting(false)}><div className="modal" onClick={e=>e.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">COMMUNITY SIGHTING</span><h2>Report migratory bird activity</h2></div><button onClick={()=>setReporting(false)}>×</button></div><div className="shield"><span>◉</span><div><b>Your location will be blurred</b><p>Hunters receive a randomized activity zone—not your pin, route, or blind.</p></div></div><label>What did you see?</label><div className="choice-grid">{Object.keys(speciesValues).map(s=><button className={species===s?"active":""} onClick={()=>setSpecies(s)} key={s}>{s}</button>)}</div><label>How many?</label><div className="choice-grid four">{Object.keys(amountValues).map(a=><button className={amount===a?"active":""} onClick={()=>setAmount(a)} key={a}>{a}</button>)}</div><label>What were they doing?</label><select value={behavior} onChange={e=>setBehavior(e.target.value)}><option value="feeding">Feeding</option><option value="circling">Circling</option><option value="flying_over">Flying over</option><option value="resting">Resting on water</option><option value="moving_in">Moving into area</option></select><button className="share" onClick={submit}>Share protected report →</button>{status&&<p className="form-status">{status}</p>}</div></div>}
++  {detail&&<div className="modal-wrap" onClick={()=>setDetailId("")}><article className="modal detail-modal" onClick={e=>e.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">PROTECTED ACTIVITY ZONE · {detail.age.toUpperCase()} AGO</span><h2>{labels[detail.species]}</h2></div><button onClick={()=>setDetailId("")} aria-label="Close details">×</button></div><div className="detail-hero"><div className={`duck-badge ${detail.color}`}>⌁</div><div><b>{detail.flock_size} birds</b><span>{labels[detail.behavior]}</span></div><div className="detail-confidence"><b>{detail.confidence}%</b><span>confidence</span></div></div><div className="detail-grid"><div><span>REPORTED</span><b>{new Date(detail.occurred_at).toLocaleString()}</b></div><div><span>COMMUNITY</span><b>{detail.confirmations} confirmations</b></div><div><span>LOCATION</span><b>Randomized activity zone</b></div><div><span>SPECIES GROUP</span><b>{detail.species==="sandhill_crane"?"Crane":geese.has(detail.species)?"Goose / swan":"Duck"}</b></div></div><section className="sighting-story">{detail.notes&&<div className="report-note"><span>REPORTER NOTE</span><p>{detail.notes}</p></div>}{photos.length>0&&<div className="photo-grid">{photos.map(item=><img key={item.id} src={`${API}${item.url}`} alt={`Photo attached to ${labels[detail.species]} sighting`}/>)}</div>}</section><div className="shield"><span>◉</span><div><b>Exact location hidden</b><p>The map displays a randomized zone. The reporting hunter’s exact coordinates, route, and blind are never shown.</p></div></div><section className="comments"><div className="comments-head"><b>Community comments</b><span>{comments.length}</span></div>{comments.length?<div className="comment-list">{comments.map(item=><article key={item.id}><b>{item.display_name}</b><time>{new Date(item.created_at).toLocaleString()}</time><p>{item.body}</p></article>)}</div>:<p className="no-comments">No comments yet.</p>}<div className="comment-compose"><textarea value={comment} onChange={e=>setComment(e.target.value)} maxLength={500} placeholder={token?"Add a helpful observation…":"Sign in to comment"} disabled={!token}/><button onClick={postComment}>{token?"Post":"Sign in"}</button></div>{commentStatus&&<p className="comment-status">{commentStatus}</p>}</section><div className="detail-actions"><button className={`save-detail ${savedIds.includes(detail.id)?"saved":""}`} onClick={()=>toggleSaved(detail.id)}>{savedIds.includes(detail.id)?"★ Saved":"☆ Save sighting"}</button><button className="confirm-btn" onClick={confirm}>✓ Confirm activity</button></div></article></div>}
++  {reporting&&<div className="modal-wrap" onClick={()=>setReporting(false)}><div className="modal" onClick={e=>e.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">COMMUNITY SIGHTING</span><h2>Report migratory bird activity</h2></div><button onClick={()=>setReporting(false)}>×</button></div><div className="shield"><span>◉</span><div><b>Your location will be blurred</b><p>Hunters receive a randomized activity zone—not your pin, route, or blind.</p></div></div><label>What did you see?</label><div className="choice-grid">{Object.keys(speciesValues).map(s=><button className={species===s?"active":""} onClick={()=>setSpecies(s)} key={s}>{s}</button>)}</div><label>How many?</label><div className="choice-grid four">{Object.keys(amountValues).map(a=><button className={amount===a?"active":""} onClick={()=>setAmount(a)} key={a}>{a}</button>)}</div><label>What were they doing?</label><select value={behavior} onChange={e=>setBehavior(e.target.value)}><option value="feeding">Feeding</option><option value="circling">Circling</option><option value="flying_over">Flying over</option><option value="resting">Resting on water</option><option value="moving_in">Moving into area</option></select><label>Field note (optional)</label><textarea value={notes} onChange={e=>setNotes(e.target.value)} maxLength={1000} placeholder="Habitat, direction of travel, weather, or other useful context…"/><label>Photo (optional)</label><input className="photo-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={e=>{const file=e.target.files?.[0]||null;if(file&&file.size>5242880){setStatus("Photo must be 5 MB or smaller.");setPhoto(null);}else setPhoto(file);}}/><button className="share" onClick={submit}>Share protected report →</button>{status&&<p className="form-status">{status}</p>}</div></div>}
+   {authOpen&&<div className="modal-wrap" onClick={()=>setAuthOpen(false)}><div className="modal auth-modal" onClick={e=>e.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">HUNTER ACCOUNT</span><h2>{authMode==="login"?"Welcome back":"Join Flyway"}</h2></div><button onClick={()=>setAuthOpen(false)}>×</button></div>{authMode==="signup"&&<><label>Display name</label><input value={displayName} onChange={e=>setDisplayName(e.target.value)} placeholder="Marsh Hunter"/></>}<label>Email</label><input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="hunter@example.com"/><label>Password</label><input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="8 characters minimum"/><button className="share" onClick={authenticate}>{authMode==="login"?"Sign in":"Create account"}</button>{authError&&<p className="form-status error">{authError}</p>}<button className="auth-switch" onClick={()=>setAuthMode(authMode==="login"?"signup":"login")}>{authMode==="login"?"New to Flyway? Create an account":"Already have an account? Sign in"}</button></div></div>}
+   </main>;
+ }
+diff --git a/app/globals.css b/app/globals.css
+index 6e0f252..e33849c 100644
+--- a/app/globals.css
++++ b/app/globals.css
+@@ -33,5 +33,6 @@ button { cursor:pointer; color:inherit; }
+ .time-filter{border:1px solid #657164;background:#eef1e9;color:#162019;border-radius:20px;padding:8px 12px;font-size:11px;font-weight:700;box-shadow:0 5px 18px #0005;min-width:132px}
+ .panel-backdrop{position:absolute;z-index:7;inset:0;background:#05080566;backdrop-filter:blur(2px)}.panel-backdrop .content-panel{z-index:1}.panel-actions{display:flex;align-items:center;gap:8px}.panel-head .panel-close{width:34px;height:34px;padding:0;display:grid;place-items:center;border-radius:50%;font-size:21px;line-height:1}.modal-head>button{width:36px;height:36px;display:grid;place-items:center;border-radius:50%;transition:background .15s}.modal-head>button:hover,.panel-close:hover{background:#2a342c}.modal-wrap{cursor:pointer}.modal{cursor:default}
+ .report-card .close-card{z-index:3;right:8px;top:7px;width:30px;height:30px;display:grid;place-items:center;border-radius:50%;font-size:20px}.report-card .close-card:hover{background:#2a342c;color:var(--ink)}.report-card .report-head{padding-right:45px}
++.modal textarea{width:100%;min-height:76px;resize:vertical;padding:11px 12px;border:1px solid #374139;background:#19211b;color:#edf2eb;border-radius:6px;outline:none;font:inherit;font-size:11px}.modal textarea:focus{border-color:var(--green)}.photo-input{font-size:10px}.detail-modal{max-height:92dvh;overflow:auto}.sighting-story:empty{display:none}.report-note{margin:14px 0;padding:13px;background:#18211b;border-left:3px solid var(--green);border-radius:5px}.report-note span{font-size:7px;letter-spacing:.14em;color:#92a092}.report-note p{margin:5px 0 0;font-size:11px;line-height:1.55}.photo-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:14px 0}.photo-grid img{width:100%;height:170px;object-fit:cover;border-radius:8px;border:1px solid #39443a}.comments{margin:18px 0;border:1px solid #303a31;border-radius:9px;overflow:hidden}.comments-head{display:flex;justify-content:space-between;padding:12px 14px;background:#172019}.comments-head b{font-size:11px}.comments-head span{color:var(--green);font-size:10px}.comment-list{max-height:220px;overflow:auto}.comment-list article{padding:12px 14px;border-top:1px solid #2b352d}.comment-list article b{font-size:10px}.comment-list time{float:right;color:#7f8b81;font-size:8px}.comment-list p{margin:6px 0 0;color:#c4ccc5;font-size:10px;line-height:1.5}.no-comments{padding:13px 14px;margin:0;color:#879288;font-size:10px}.comment-compose{display:flex;gap:8px;padding:10px;border-top:1px solid #303a31}.comment-compose textarea{min-height:48px;resize:none}.comment-compose button{align-self:stretch;border:0;background:var(--green);color:#142017;border-radius:6px;padding:0 14px;font-size:10px;font-weight:800}.comment-compose textarea:disabled{opacity:.55}.comment-status{text-align:center;color:#d7eaa7;font-size:9px}.detail-actions{margin-top:12px}@media(max-width:520px){.photo-grid{grid-template-columns:1fr}.photo-grid img{height:190px}.comment-compose{flex-direction:column}.comment-compose button{padding:10px}}
+ .account-card{padding:30px 24px}.preferences-form{max-width:520px;margin:24px auto;text-align:left;border:1px solid #303a31;border-radius:10px;overflow:hidden;background:#141d17}.preference-block{padding:16px}.preference-block>span{display:block;font-size:8px;letter-spacing:.14em;color:#91a092;font-weight:800}.preference-block>small,.preference-row small{display:block;color:#879288;font-size:9px;margin-top:3px}.preference-toggles{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:12px}.preference-toggles button{display:flex;align-items:center;justify-content:center;gap:6px;padding:10px 7px;border:1px solid #3b473e;background:#19221c;border-radius:7px;font-size:10px}.preference-toggles button b{width:14px;height:14px;border:1px solid #657166;border-radius:3px;display:grid;place-items:center;font-size:9px}.preference-toggles button.active{border-color:#799747;color:var(--green);background:#21301f}.preference-toggles button.active b{background:var(--green);color:#172019;border-color:var(--green)}.preference-row{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:14px 16px;border-top:1px solid #303a31}.preference-row b{font-size:11px}.preference-row select{width:auto;min-width:135px;text-align:left}.preference-row input[type="checkbox"]{width:38px;height:20px;accent-color:#bfe957}.preference-status{text-align:center;color:var(--green);font-size:9px;padding:9px;border-top:1px solid #303a31}.account-card .signout-button{border:1px solid #5a665c;background:#19211b;color:#c9d1ca;border-radius:7px;padding:10px 22px}.account-card .signout-button:hover{border-color:#819084}@media(max-width:520px){.preference-toggles{grid-template-columns:1fr}.preference-row{align-items:flex-start;flex-direction:column}.preference-row select{width:100%}}
+ .map-canvas{transform:none;transform-origin:initial;transition:none;background:#13201a;overflow:hidden}.tile-layer{position:absolute;inset:0;filter:saturate(.55) brightness(.64) contrast(1.13)}.tile-layer img{position:absolute;width:256px;height:256px;max-width:none;user-select:none;pointer-events:none}.map-attribution{position:absolute;z-index:7;right:8px;bottom:79px;background:#0c120ecc;color:#aab3aa;padding:3px 6px;border-radius:3px;font-size:8px}.world-map{color:#8fd5cb!important}
+diff --git a/api/server.mjs b/api/server.mjs
+index 033e607..3ddae30 100644
+--- a/api/server.mjs
++++ b/api/server.mjs
+@@ -35,6 +35,13 @@ async function body(req) {
+   catch { throw Object.assign(new Error("Invalid JSON"), { status: 400 }); }
+ }
+ 
++async function binaryBody(req, max = 5_242_880) {
++  const chunks = []; let size = 0;
++  for await (const chunk of req) { size += chunk.length; if (size > max) throw Object.assign(new Error("Image must be 5 MB or smaller"), { status: 413 }); chunks.push(chunk); }
++  if (!size) throw Object.assign(new Error("Image is required"), { status: 400 });
++  return Buffer.concat(chunks);
++}
++
+ function rateLimit(req, max = 60) {
+   const ip = req.headers["cf-connecting-ip"] || req.socket.remoteAddress || "unknown";
+   const window = Math.floor(Date.now() / 60_000);
+@@ -187,10 +194,53 @@ const server = http.createServer(async (req, res) => {
+       const rows = await supabase("/rest/v1/sightings", { method: "POST", data: {
+         reporter_id: user.id, species: input.species, flock_size: input.flock_size, behavior: input.behavior,
+         exact_latitude: latitude, exact_longitude: longitude, accuracy_meters: Math.min(Math.max(Number(input.accuracy_meters) || 0, 0), 10000),
++        notes: typeof input.notes === "string" ? input.notes.trim().slice(0, 1000) || null : null,
+       }, prefer: "return=representation" });
+       return json(res, 201, { id: rows[0].id, expires_at: rows[0].expires_at }, origin);
+     }
+ 
++    const photos = url.pathname.match(/^\/api\/sightings\/([0-9a-f-]{36})\/photos$/i);
++    if (photos && req.method === "GET") {
++      const rows = await supabase(`/rest/v1/sighting_media?sighting_id=eq.${photos[1]}&select=id,mime_type,created_at&order=created_at.asc`);
++      return json(res, 200, { photos: rows.map(row => ({ ...row, url: `/api/media/${row.id}` })) }, origin);
++    }
++    if (photos && req.method === "POST") {
++      rateLimit(req, 8); const { user } = await currentUser(req); await ensureProfile(user);
++      const mime = String(req.headers["content-type"] || "").split(";")[0];
++      if (!["image/jpeg","image/png","image/webp"].includes(mime)) throw Object.assign(new Error("Use a JPEG, PNG, or WebP image"), { status: 415 });
++      const owned = await supabase(`/rest/v1/sightings?id=eq.${photos[1]}&reporter_id=eq.${user.id}&select=id`);
++      if (!owned.length) throw Object.assign(new Error("Only the reporting hunter can add photos"), { status: 403 });
++      const bytes = await binaryBody(req); const ext = mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : "jpg"; const objectPath = `${photos[1]}/${crypto.randomUUID()}.${ext}`;
++      const uploaded = await fetch(`${SUPABASE_URL}/storage/v1/object/sighting-photos/${objectPath}`, { method:"POST", headers:{ apikey:SERVICE_KEY, Authorization:`Bearer ${SERVICE_KEY}`, "Content-Type":mime, "x-upsert":"false" }, body:bytes });
++      if (!uploaded.ok) throw Object.assign(new Error("Photo storage failed"), { status: 502 });
++      const rows = await supabase("/rest/v1/sighting_media", { method:"POST", data:{ sighting_id:photos[1], uploader_id:user.id, object_path:objectPath, mime_type:mime, byte_size:bytes.length }, prefer:"return=representation" });
++      return json(res, 201, { id:rows[0].id, url:`/api/media/${rows[0].id}` }, origin);
++    }
++
++    const comments = url.pathname.match(/^\/api\/sightings\/([0-9a-f-]{36})\/comments$/i);
++    if (comments && req.method === "GET") {
++      const rows = await supabase(`/rest/v1/sighting_comments?sighting_id=eq.${comments[1]}&select=id,commenter_id,body,created_at&order=created_at.asc&limit=100`);
++      const ids = [...new Set(rows.map(row=>row.commenter_id))];
++      const profiles = ids.length ? await supabase(`/rest/v1/profiles?id=in.(${ids.join(",")})&select=id,display_name`) : [];
++      const names = new Map(profiles.map(p=>[p.id,p.display_name]));
++      return json(res, 200, { comments: rows.map(({commenter_id,...row})=>({...row,display_name:names.get(commenter_id)||"Hunter"})) }, origin);
++    }
++    if (comments && req.method === "POST") {
++      rateLimit(req, 20); const { user } = await currentUser(req); await ensureProfile(user); const input = await body(req); const text = typeof input.body === "string" ? input.body.trim() : "";
++      if (!text || text.length > 500) throw Object.assign(new Error("Comment must be between 1 and 500 characters"), { status:400 });
++      await supabase("/rest/v1/sighting_comments", { method:"POST", data:{ sighting_id:comments[1], commenter_id:user.id, body:text }, prefer:"return=minimal" });
++      return json(res, 201, { status:"created" }, origin);
++    }
++
++    const media = url.pathname.match(/^\/api\/media\/([0-9a-f-]{36})$/i);
++    if (media && req.method === "GET") {
++      const rows = await supabase(`/rest/v1/sighting_media?id=eq.${media[1]}&select=object_path,mime_type`);
++      if (!rows.length) throw Object.assign(new Error("Photo not found"), { status:404 });
++      const image = await fetch(`${SUPABASE_URL}/storage/v1/object/sighting-photos/${rows[0].object_path}`, { headers:{ apikey:SERVICE_KEY, Authorization:`Bearer ${SERVICE_KEY}` } });
++      if (!image.ok) throw Object.assign(new Error("Photo not found"), { status:404 });
++      res.writeHead(200, { "Content-Type":rows[0].mime_type, "Cache-Control":"public, max-age=3600", ...cors(origin) }); return res.end(Buffer.from(await image.arrayBuffer()));
++    }
++
+     const confirmation = url.pathname.match(/^\/api\/sightings\/([0-9a-f-]{36})\/confirm$/i);
+     if (req.method === "POST" && confirmation) {
+       rateLimit(req, 30);
+diff --git a/supabase/schema.sql b/supabase/schema.sql
+index 95ff3ac..997fe68 100644
+--- a/supabase/schema.sql
++++ b/supabase/schema.sql
+@@ -21,6 +21,7 @@ create table public.sightings (
+   species public.bird_species not null,
+   flock_size public.flock_band not null,
+   behavior public.sighting_behavior not null,
++  notes text check (char_length(notes) <= 1000),
+   exact_latitude double precision not null check (exact_latitude between -90 and 90),
+   exact_longitude double precision not null check (exact_longitude between -180 and 180),
+   accuracy_meters integer check (accuracy_meters between 0 and 10000),
+@@ -52,10 +53,15 @@ create table public.flags (
+   unique (sighting_id, hunter_id)
+ );
+ 
++create table public.sighting_media (id uuid primary key default gen_random_uuid(), sighting_id uuid not null references public.sightings(id) on delete cascade, uploader_id uuid not null references public.profiles(id) on delete cascade, object_path text not null unique, mime_type text not null check (mime_type in ('image/jpeg','image/png','image/webp')), byte_size integer not null check (byte_size between 1 and 5242880), created_at timestamptz not null default now());
++create table public.sighting_comments (id uuid primary key default gen_random_uuid(), sighting_id uuid not null references public.sightings(id) on delete cascade, commenter_id uuid not null references public.profiles(id) on delete cascade, body text not null check (char_length(body) between 1 and 500), created_at timestamptz not null default now());
++
+ alter table public.profiles enable row level security;
+ alter table public.sightings enable row level security;
+ alter table public.confirmations enable row level security;
+ alter table public.flags enable row level security;
++alter table public.sighting_media enable row level security;
++alter table public.sighting_comments enable row level security;
+ 
+ create policy "read own profile" on public.profiles for select using (id = auth.uid());
+ create policy "update own profile" on public.profiles for update using (id = auth.uid()) with check (id = auth.uid());
+@@ -70,7 +76,7 @@ returns table (
+   id uuid, species public.bird_species, flock_size public.flock_band,
+   behavior public.sighting_behavior, zone_latitude double precision,
+   zone_longitude double precision, confidence smallint, occurred_at timestamptz,
+-  expires_at timestamptz, confirmations bigint
++  expires_at timestamptz, confirmations bigint, notes text
+ )
+ language sql
+ security definer
+@@ -79,7 +85,7 @@ as $$
+   select s.id, s.species, s.flock_size, s.behavior,
+     round((s.exact_latitude + (((('x' || substr(md5(s.id::text || ':lat'), 1, 8))::bit(32)::bigint % 1000) / 1000.0) - .5) * .06)::numeric, 3)::double precision,
+     round((s.exact_longitude + (((('x' || substr(md5(s.id::text || ':lng'), 1, 8))::bit(32)::bigint % 1000) / 1000.0) - .5) * .08)::numeric, 3)::double precision,
+-    s.confidence, s.occurred_at, s.expires_at, count(c.hunter_id)
++    s.confidence, s.occurred_at, s.expires_at, count(c.hunter_id), s.notes
+   from public.sightings s
+   left join public.confirmations c on c.sighting_id = s.id
+   where s.status = 'active' and s.occurred_at >= greatest(p_since, now() - interval '90 days')
+@@ -93,3 +99,5 @@ grant execute on function public.nearby_sightings(integer, timestamptz) to anon,
+ 
+ -- Raw sightings are intentionally unavailable to anon/authenticated users.
+ revoke select (exact_latitude, exact_longitude, accuracy_meters) on public.sightings from anon, authenticated;
++revoke all on public.sighting_media from anon, authenticated;
++revoke all on public.sighting_comments from anon, authenticated;
+diff --git a/supabase/migrate_notes_photos_comments.sql b/supabase/migrate_notes_photos_comments.sql
+index e69de29..3248874 100644
+--- a/supabase/migrate_notes_photos_comments.sql
++++ b/supabase/migrate_notes_photos_comments.sql
+@@ -0,0 +1,50 @@
++begin;
++
++alter table public.sightings add column if not exists notes text check (char_length(notes) <= 1000);
++
++create table if not exists public.sighting_media (
++  id uuid primary key default gen_random_uuid(),
++  sighting_id uuid not null references public.sightings(id) on delete cascade,
++  uploader_id uuid not null references public.profiles(id) on delete cascade,
++  object_path text not null unique,
++  mime_type text not null check (mime_type in ('image/jpeg','image/png','image/webp')),
++  byte_size integer not null check (byte_size between 1 and 5242880),
++  created_at timestamptz not null default now()
++);
++
++create table if not exists public.sighting_comments (
++  id uuid primary key default gen_random_uuid(),
++  sighting_id uuid not null references public.sightings(id) on delete cascade,
++  commenter_id uuid not null references public.profiles(id) on delete cascade,
++  body text not null check (char_length(body) between 1 and 500),
++  created_at timestamptz not null default now()
++);
++
++create index if not exists sighting_media_sighting_idx on public.sighting_media(sighting_id, created_at);
++create index if not exists sighting_comments_sighting_idx on public.sighting_comments(sighting_id, created_at);
++alter table public.sighting_media enable row level security;
++alter table public.sighting_comments enable row level security;
++revoke all on public.sighting_media from anon, authenticated;
++revoke all on public.sighting_comments from anon, authenticated;
++
++insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
++values ('sighting-photos','sighting-photos',false,5242880,array['image/jpeg','image/png','image/webp'])
++on conflict (id) do update set public=false, file_size_limit=5242880, allowed_mime_types=excluded.allowed_mime_types;
++
++commit;
++
++-- Rebuild the safe RPC so public results can include report notes.
++drop function if exists public.nearby_sightings(integer, timestamptz);
++create function public.nearby_sightings(p_limit integer default 100, p_since timestamptz default (now() - interval '7 days'))
++returns table (id uuid, species public.bird_species, flock_size public.flock_band, behavior public.sighting_behavior, zone_latitude double precision, zone_longitude double precision, confidence smallint, occurred_at timestamptz, expires_at timestamptz, confirmations bigint, notes text)
++language sql security definer set search_path=public as $$
++  select s.id,s.species,s.flock_size,s.behavior,
++    round((s.exact_latitude+(((('x'||substr(md5(s.id::text||':lat'),1,8))::bit(32)::bigint%1000)/1000.0)-.5)*.06)::numeric,3)::double precision,
++    round((s.exact_longitude+(((('x'||substr(md5(s.id::text||':lng'),1,8))::bit(32)::bigint%1000)/1000.0)-.5)*.08)::numeric,3)::double precision,
++    s.confidence,s.occurred_at,s.expires_at,count(c.hunter_id),s.notes
++  from public.sightings s left join public.confirmations c on c.sighting_id=s.id
++  where s.status='active' and s.occurred_at>=greatest(p_since,now()-interval '90 days')
++  group by s.id order by s.occurred_at desc limit least(greatest(p_limit,1),250);
++$$;
++revoke all on function public.nearby_sightings(integer,timestamptz) from public;
++grant execute on function public.nearby_sightings(integer,timestamptz) to anon,authenticated;

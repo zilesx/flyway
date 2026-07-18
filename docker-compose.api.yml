@@ -14,6 +14,8 @@ services:
       SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY}"
       SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY}"
       ALLOWED_ORIGINS: "${ALLOWED_ORIGINS}"
+      PUBLIC_APP_URL: "${PUBLIC_APP_URL}"
+      SECURITY_HASH_SALT: "${SECURITY_HASH_SALT}"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/health"]
       interval: 30s

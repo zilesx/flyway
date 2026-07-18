@@ -1,0 +1,153 @@
+diff --git a/app/page.tsx b/app/page.tsx
+index b22a9e8..fd5a331 100644
+--- a/app/page.tsx
++++ b/app/page.tsx
+@@ -8,11 +8,14 @@ type MapReport = LiveReport & { x:number; y:number; size:number; color:string; a
+ type Panel = "map" | "activity" | "saved" | "more";
+ type Filter = "all" | "ducks" | "geese" | "cranes";
+ type MapCenter = { lat:number; lon:number };
++type Preferences = { visible_groups:string[]; default_days:number; start_view:"us"|"world"|"my_area"; auto_open_card:boolean };
+ 
+ const labels: Record<string,string> = { mallard:"Mallard",teal:"Teal",gadwall:"Gadwall",pintail:"Pintail",wood_duck:"Wood duck",diver:"Diving duck",mixed:"Mixed ducks",other:"Other migratory bird",canada_goose:"Canada goose",snow_goose:"Snow goose",white_fronted_goose:"White-fronted goose",sandhill_crane:"Sandhill crane",tundra_swan:"Tundra swan",feeding:"Feeding",circling:"Circling",flying_over:"Flying over",resting:"Resting on water",moving_in:"Moving into area" };
+ const colors: Record<string,string> = { mallard:"green",teal:"blue",mixed:"gold",gadwall:"gray",canada_goose:"gold",snow_goose:"blue",white_fronted_goose:"gold",sandhill_crane:"gray",tundra_swan:"blue" };
+ const speciesValues: Record<string,string> = { Mallard:"mallard",Teal:"teal",Gadwall:"gadwall",Pintail:"pintail","Mixed ducks":"mixed","Canada goose":"canada_goose","Snow goose":"snow_goose","White-fronted goose":"white_fronted_goose","Sandhill crane":"sandhill_crane","Tundra swan":"tundra_swan" };
+ const geese=new Set(["canada_goose","snow_goose","white_fronted_goose","tundra_swan"]);
++const defaultPreferences:Preferences={visible_groups:["ducks","geese","cranes"],default_days:7,start_view:"us",auto_open_card:true};
++function birdGroup(species:string){return species==="sandhill_crane"?"cranes":geese.has(species)?"geese":"ducks";}
+ const amountValues: Record<string,string> = { "1–10":"1-10","10–25":"10-25","25–50":"25-50","50+":"50+" };
+ 
+ function age(iso:string){ const m=Math.max(1,Math.floor((Date.now()-new Date(iso).getTime())/60000)); return m<60?`${m}m`:`${Math.floor(m/60)}h`; }
+@@ -31,6 +34,8 @@ export default function Home(){
+   const [savedIds,setSavedIds]=useState<string[]>([]);
+   const [detailId,setDetailId]=useState("");
+   const [cardOpen,setCardOpen]=useState(true);
++  const [preferences,setPreferences]=useState<Preferences>(defaultPreferences);
++  const [preferencesStatus,setPreferencesStatus]=useState("");
+   const [zoom,setZoom]=useState(4);
+   const [center,setCenter]=useState<MapCenter>({lat:39.5,lon:-98.35});
+   const [viewport,setViewport]=useState({width:1280,height:720});
+@@ -39,28 +44,30 @@ export default function Home(){
+   const [authOpen,setAuthOpen]=useState(false);
+   const [authMode,setAuthMode]=useState<"login"|"signup">("login");
+   const [email,setEmail]=useState(""); const [password,setPassword]=useState(""); const [displayName,setDisplayName]=useState(""); const [authError,setAuthError]=useState("");
+-  const [token,setToken]=useState(""); const [profile,setProfile]=useState<{display_name:string}|null>(null);
++  const [token,setToken]=useState(""); const [profile,setProfile]=useState<{display_name:string;preferences?:Preferences}|null>(null);
+   const [species,setSpecies]=useState("Mallard"); const [amount,setAmount]=useState("25–50"); const [behavior,setBehavior]=useState("feeding"); const [status,setStatus]=useState("");
+ 
+-  const visibleReports=useMemo(()=>reports.filter(r=>filter==="all"||(filter==="geese"?geese.has(r.species):filter==="cranes"?r.species==="sandhill_crane":!geese.has(r.species)&&r.species!=="sandhill_crane")),[reports,filter]);
++  const visibleReports=useMemo(()=>reports.filter(r=>preferences.visible_groups.includes(birdGroup(r.species))&&(filter==="all"||filter===birdGroup(r.species))),[reports,filter,preferences.visible_groups]);
+   const savedReports=useMemo(()=>reports.filter(r=>savedIds.includes(r.id)),[reports,savedIds]);
+   const selected=useMemo(()=>reports.find(r=>r.id===selectedId)||visibleReports[0],[reports,visibleReports,selectedId]);
+   const detail=useMemo(()=>reports.find(r=>r.id===detailId),[reports,detailId]);
+   const mapGeometry=useMemo(()=>{const centerPx=project(center.lat,center.lon,zoom);const size=256*2**zoom;const minX=Math.floor((centerPx.x-viewport.width/2)/256)-1,maxX=Math.floor((centerPx.x+viewport.width/2)/256)+1,minY=Math.max(0,Math.floor((centerPx.y-viewport.height/2)/256)-1),maxY=Math.min(2**zoom-1,Math.floor((centerPx.y+viewport.height/2)/256)+1);const tiles=[];for(let y=minY;y<=maxY;y++)for(let x=minX;x<=maxX;x++){const wrapped=((x%(2**zoom))+2**zoom)%(2**zoom);tiles.push({key:`${zoom}-${x}-${y}`,url:`https://tile.openstreetmap.org/${zoom}/${wrapped}/${y}.png`,left:x*256-centerPx.x+viewport.width/2,top:y*256-centerPx.y+viewport.height/2});}return{tiles,centerPx,size};},[center,zoom,viewport]);
+ 
+   async function load(){ try{ const data=await request(`/api/sightings?days=${timeDays}&limit=250`); const mapped=(data.sightings||[]).map((r:LiveReport)=>({...r,x:position(r.zone_latitude,1),y:position(r.zone_longitude,2),size:r.flock_size==="50+"?108:r.flock_size==="25-50"?92:68,color:colors[r.species]||"gray",age:age(r.occurred_at)})); setReports(mapped); if(mapped[0]) setSelectedId(v=>v||mapped[0].id); } finally{setLoading(false);} }
+-  useEffect(()=>{ const resize=()=>setViewport({width:window.innerWidth,height:window.innerHeight});resize();window.addEventListener("resize",resize);setSavedIds(JSON.parse(localStorage.getItem("flyway_saved")||"[]")); const saved=localStorage.getItem("flyway_session"); if(saved){ const s=JSON.parse(saved); setToken(s.access_token); request("/api/profile",{headers:{Authorization:`Bearer ${s.access_token}`}}).then(setProfile).catch(()=>localStorage.removeItem("flyway_session")); } return()=>window.removeEventListener("resize",resize); },[]);
++  useEffect(()=>{ const resize=()=>setViewport({width:window.innerWidth,height:window.innerHeight});resize();window.addEventListener("resize",resize);setSavedIds(JSON.parse(localStorage.getItem("flyway_saved")||"[]")); const saved=localStorage.getItem("flyway_session"); if(saved){ const s=JSON.parse(saved); setToken(s.access_token); request("/api/profile",{headers:{Authorization:`Bearer ${s.access_token}`}}).then(p=>{setProfile(p);applyPreferences(p.preferences||defaultPreferences);}).catch(()=>localStorage.removeItem("flyway_session")); } return()=>window.removeEventListener("resize",resize); },[]);
+   useEffect(()=>{setLoading(true);load();},[timeDays]);
+   useEffect(()=>{const close=(event:KeyboardEvent)=>{if(event.key!=="Escape")return;if(authOpen)setAuthOpen(false);else if(reporting)setReporting(false);else if(detailId)setDetailId("");else if(panel!=="map")setPanel("map");else if(cardOpen)setCardOpen(false);};window.addEventListener("keydown",close);return()=>window.removeEventListener("keydown",close);},[authOpen,reporting,detailId,panel,cardOpen]);
+ 
+-  function showReport(id:string){ setSelectedId(id); setCardOpen(true); setDetailId(id); setPanel("map"); }
+-  function openDetail(id:string){ setSelectedId(id); setCardOpen(true); setDetailId(id); }
++  function showReport(id:string){ setSelectedId(id); setCardOpen(preferences.auto_open_card); setDetailId(id); setPanel("map"); }
++  function openDetail(id:string){ setSelectedId(id); setCardOpen(preferences.auto_open_card); setDetailId(id); }
++  function applyPreferences(next:Preferences){setPreferences(next);setTimeDays(next.default_days);if(next.start_view==="world"){setZoom(2);setCenter({lat:20,lon:0});}else if(next.start_view==="my_area")locateMe();else resetMap();}
++  async function savePreferences(next:Preferences){setPreferences(next);setPreferencesStatus("Saving…");try{const data=await request("/api/profile",{method:"PATCH",headers:{Authorization:`Bearer ${token}`,"Content-Type":"application/json"},body:JSON.stringify({preferences:next})});applyPreferences(data.preferences);setPreferencesStatus("Saved");setTimeout(()=>setPreferencesStatus(""),1200);}catch(e){setPreferencesStatus(e instanceof Error?e.message:"Could not save preferences");}}
+   function changeZoom(amount:number){ setZoom(current=>Math.min(15,Math.max(2,current+amount))); }
+   function resetMap(){ setZoom(4); setCenter({lat:39.5,lon:-98.35}); }
+   function locateMe(){navigator.geolocation?.getCurrentPosition(pos=>{setCenter({lat:pos.coords.latitude,lon:pos.coords.longitude});setZoom(8);});}
+   function markerPosition(r:MapReport){const point=project(r.zone_latitude,r.zone_longitude,zoom);let dx=point.x-mapGeometry.centerPx.x;if(dx>mapGeometry.size/2)dx-=mapGeometry.size;if(dx<-mapGeometry.size/2)dx+=mapGeometry.size;return{left:dx+viewport.width/2,top:point.y-mapGeometry.centerPx.y+viewport.height/2};}
+   function toggleSaved(id:string){ setSavedIds(current=>{ const next=current.includes(id)?current.filter(x=>x!==id):[...current,id]; localStorage.setItem("flyway_saved",JSON.stringify(next)); return next; }); }
+-  async function authenticate(){ setAuthError(""); try{ const data=await request(`/api/auth/${authMode}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,password,display_name:displayName})}); if(!data.access_token){ setAuthError("Check your email to confirm your account, then sign in."); setAuthMode("login"); return; } localStorage.setItem("flyway_session",JSON.stringify(data)); setToken(data.access_token); const p=await request("/api/profile",{headers:{Authorization:`Bearer ${data.access_token}`}}); setProfile(p); setAuthOpen(false); }catch(e){setAuthError(e instanceof Error?e.message:"Sign in failed");} }
++  async function authenticate(){ setAuthError(""); try{ const data=await request(`/api/auth/${authMode}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,password,display_name:displayName})}); if(!data.access_token){ setAuthError("Check your email to confirm your account, then sign in."); setAuthMode("login"); return; } localStorage.setItem("flyway_session",JSON.stringify(data)); setToken(data.access_token); const p=await request("/api/profile",{headers:{Authorization:`Bearer ${data.access_token}`}}); setProfile(p); applyPreferences(p.preferences||defaultPreferences); setAuthOpen(false); }catch(e){setAuthError(e instanceof Error?e.message:"Sign in failed");} }
+   function openReport(){ if(!token){setAuthOpen(true);return;} setReporting(true); }
+   async function submit(){ setStatus("Getting protected location…"); navigator.geolocation.getCurrentPosition(async pos=>{ try{ setStatus("Sharing activity…"); await request("/api/sightings",{method:"POST",headers:{Authorization:`Bearer ${token}`,"Content-Type":"application/json"},body:JSON.stringify({species:speciesValues[species],flock_size:amountValues[amount],behavior,latitude:pos.coords.latitude,longitude:pos.coords.longitude,accuracy_meters:Math.round(pos.coords.accuracy)})}); setStatus("Activity shared. Your exact location stays private."); await load(); setTimeout(()=>{setReporting(false);setStatus("");},1400); }catch(e){setStatus(e instanceof Error?e.message:"Could not share report");} },()=>setStatus("Location permission is required to report activity."),{enableHighAccuracy:true,timeout:12000}); }
+   async function confirm(){ if(!token){setAuthOpen(true);return;} if(!selected)return; await request(`/api/sightings/${selected.id}/confirm`,{method:"POST",headers:{Authorization:`Bearer ${token}`}}); await load(); }
+@@ -78,7 +85,7 @@ export default function Home(){
+     </div>
+     <div className="map-controls" aria-label="Map controls"><button onClick={()=>changeZoom(1)} aria-label="Zoom in">+</button><button onClick={()=>changeZoom(-1)} aria-label="Zoom out">−</button><button className="reset-map" onClick={locateMe} aria-label="Go to my location">⌖</button><button className="world-map" onClick={()=>{setZoom(2);setCenter({lat:20,lon:0})}} aria-label="Show world">◎</button><span>ZOOM {zoom}</span></div><div className="map-attribution">© OpenStreetMap contributors</div>
+     {cardOpen&&selected&&visibleReports.some(r=>r.id===selected.id)&&<section className="report-card"><button className="close-card" onClick={()=>setCardOpen(false)} aria-label="Dismiss live activity">×</button><div className="report-head"><div className={`duck-badge ${selected.color}`}>⌁</div><div><span className="eyebrow">LIVE ACTIVITY · {selected.age.toUpperCase()} AGO</span><h2>{labels[selected.species]}</h2></div><button className={`save-btn ${savedIds.includes(selected.id)?"saved":""}`} onClick={()=>toggleSaved(selected.id)} aria-label={savedIds.includes(selected.id)?"Remove saved sighting":"Save sighting"}>{savedIds.includes(selected.id)?"★":"☆"}</button><div className="confidence"><b>{selected.confidence}%</b><span>CONFIDENCE</span></div></div><div className="stats"><div><span>ESTIMATED FLOCK</span><strong>{selected.flock_size} birds</strong></div><div><span>BEHAVIOR</span><strong>{labels[selected.behavior]}</strong></div><div><span>CONFIRMED</span><strong className="up">{selected.confirmations} hunters</strong></div></div><div className="privacy"><span><b>Location protected</b>This report is displayed as a randomized activity zone. The hunter’s exact spot is never returned.</span></div><div className="confirm"><span>Seen them too?</span><button className="confirm-btn" onClick={confirm}>✓ Confirm activity</button></div></section>}</>}
+-    {panel!=="map"&&<div className="panel-backdrop" onClick={()=>setPanel("map")}><section className="content-panel" onClick={e=>e.stopPropagation()}><div className="panel-head"><div><span className="eyebrow">FLYWAY NETWORK</span><h2>{panel==="activity"?"Recent activity":panel==="saved"?"Saved sightings":"Your account"}</h2></div><div className="panel-actions">{panel==="activity"&&<button onClick={load}>↻ Refresh</button>}<button className="panel-close" onClick={()=>setPanel("map")} aria-label="Close and return to map">×</button></div></div>{panel==="activity"&&reportList(reports,"No recent reports yet.")}{panel==="saved"&&reportList(savedReports,"Save useful sightings from the map and they’ll appear here on this device.")}{panel==="more"&&<div className="account-card"><div className="account-avatar">{profile?.display_name?.slice(0,2).toUpperCase()||"IN"}</div><h3>{profile?.display_name||"Hunter"}</h3><p>Reports protect exact coordinates by publishing only randomized activity zones.</p><button className="confirm-btn" onClick={logout}>Sign out</button></div>}</section></div>}
++    {panel!=="map"&&<div className="panel-backdrop" onClick={()=>setPanel("map")}><section className="content-panel" onClick={e=>e.stopPropagation()}><div className="panel-head"><div><span className="eyebrow">FLYWAY NETWORK</span><h2>{panel==="activity"?"Recent activity":panel==="saved"?"Saved sightings":"Your account"}</h2></div><div className="panel-actions">{panel==="activity"&&<button onClick={load}>↻ Refresh</button>}<button className="panel-close" onClick={()=>setPanel("map")} aria-label="Close and return to map">×</button></div></div>{panel==="activity"&&reportList(reports,"No recent reports yet.")}{panel==="saved"&&reportList(savedReports,"Save useful sightings from the map and they’ll appear here on this device.")}{panel==="more"&&<div className="account-card"><div className="account-avatar">{profile?.display_name?.slice(0,2).toUpperCase()||"IN"}</div><h3>{profile?.display_name||"Hunter"}</h3><p>Preferences follow your account across devices. Exact report coordinates always remain protected.</p><div className="preferences-form"><div className="preference-block"><span>BIRD VISIBILITY</span><small>Choose which groups appear on your map.</small><div className="preference-toggles">{(["ducks","geese","cranes"] as const).map(group=><button key={group} className={preferences.visible_groups.includes(group)?"active":""} onClick={()=>savePreferences({...preferences,visible_groups:preferences.visible_groups.includes(group)?preferences.visible_groups.filter(g=>g!==group):[...preferences.visible_groups,group]})}><b>{preferences.visible_groups.includes(group)?"✓":""}</b>{group[0].toUpperCase()+group.slice(1)}</button>)}</div></div><label className="preference-row"><span><b>Default history</b><small>Initial age range for sightings</small></span><select value={preferences.default_days} onChange={e=>savePreferences({...preferences,default_days:Number(e.target.value)})}><option value={1}>24 hours</option><option value={7}>7 days</option><option value={30}>30 days</option><option value={90}>90 days</option></select></label><label className="preference-row"><span><b>Starting map</b><small>View used after sign-in</small></span><select value={preferences.start_view} onChange={e=>savePreferences({...preferences,start_view:e.target.value as Preferences["start_view"]})}><option value="us">United States</option><option value="world">World</option><option value="my_area">My area</option></select></label><label className="preference-row"><span><b>Open activity card</b><small>Show the summary after selecting a marker</small></span><input type="checkbox" checked={preferences.auto_open_card} onChange={e=>savePreferences({...preferences,auto_open_card:e.target.checked})}/></label>{preferencesStatus&&<div className="preference-status">{preferencesStatus}</div>}</div><button className="signout-button" onClick={logout}>Sign out</button></div>}</section></div>}
+     <nav className="bottom-nav"><button className={panel==="map"?"active":""} onClick={()=>setPanel("map")}><span className="icon">⌖</span>Map</button><button className={panel==="activity"?"active":""} onClick={()=>setPanel("activity")}><span className="icon">≡</span>Activity</button><button className="report-button" onClick={openReport}><span>＋</span>Report birds</button><button className={panel==="saved"?"active":""} onClick={()=>setPanel("saved")}><span className="icon">☆</span>Saved</button><button className={panel==="more"?"active":""} onClick={()=>profile?setPanel("more"):setAuthOpen(true)}><span className="icon">◌</span>{profile?"Account":"Sign in"}</button></nav>
+   </section>
+   {detail&&<div className="modal-wrap" onClick={()=>setDetailId("")}><article className="modal detail-modal" onClick={e=>e.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">PROTECTED ACTIVITY ZONE · {detail.age.toUpperCase()} AGO</span><h2>{labels[detail.species]}</h2></div><button onClick={()=>setDetailId("")} aria-label="Close details">×</button></div><div className="detail-hero"><div className={`duck-badge ${detail.color}`}>⌁</div><div><b>{detail.flock_size} birds</b><span>{labels[detail.behavior]}</span></div><div className="detail-confidence"><b>{detail.confidence}%</b><span>confidence</span></div></div><div className="detail-grid"><div><span>REPORTED</span><b>{new Date(detail.occurred_at).toLocaleString()}</b></div><div><span>COMMUNITY</span><b>{detail.confirmations} confirmations</b></div><div><span>LOCATION</span><b>Randomized activity zone</b></div><div><span>SPECIES GROUP</span><b>{detail.species==="sandhill_crane"?"Crane":geese.has(detail.species)?"Goose / swan":"Duck"}</b></div></div><div className="shield"><span>◉</span><div><b>Exact location hidden</b><p>The map displays a randomized zone. The reporting hunter’s exact coordinates, route, and blind are never shown.</p></div></div><div className="detail-actions"><button className={`save-detail ${savedIds.includes(detail.id)?"saved":""}`} onClick={()=>toggleSaved(detail.id)}>{savedIds.includes(detail.id)?"★ Saved":"☆ Save sighting"}</button><button className="confirm-btn" onClick={confirm}>✓ Confirm activity</button></div></article></div>}
+diff --git a/app/globals.css b/app/globals.css
+index 171c108..6e0f252 100644
+--- a/app/globals.css
++++ b/app/globals.css
+@@ -33,4 +33,5 @@ button { cursor:pointer; color:inherit; }
+ .time-filter{border:1px solid #657164;background:#eef1e9;color:#162019;border-radius:20px;padding:8px 12px;font-size:11px;font-weight:700;box-shadow:0 5px 18px #0005;min-width:132px}
+ .panel-backdrop{position:absolute;z-index:7;inset:0;background:#05080566;backdrop-filter:blur(2px)}.panel-backdrop .content-panel{z-index:1}.panel-actions{display:flex;align-items:center;gap:8px}.panel-head .panel-close{width:34px;height:34px;padding:0;display:grid;place-items:center;border-radius:50%;font-size:21px;line-height:1}.modal-head>button{width:36px;height:36px;display:grid;place-items:center;border-radius:50%;transition:background .15s}.modal-head>button:hover,.panel-close:hover{background:#2a342c}.modal-wrap{cursor:pointer}.modal{cursor:default}
+ .report-card .close-card{z-index:3;right:8px;top:7px;width:30px;height:30px;display:grid;place-items:center;border-radius:50%;font-size:20px}.report-card .close-card:hover{background:#2a342c;color:var(--ink)}.report-card .report-head{padding-right:45px}
++.account-card{padding:30px 24px}.preferences-form{max-width:520px;margin:24px auto;text-align:left;border:1px solid #303a31;border-radius:10px;overflow:hidden;background:#141d17}.preference-block{padding:16px}.preference-block>span{display:block;font-size:8px;letter-spacing:.14em;color:#91a092;font-weight:800}.preference-block>small,.preference-row small{display:block;color:#879288;font-size:9px;margin-top:3px}.preference-toggles{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:12px}.preference-toggles button{display:flex;align-items:center;justify-content:center;gap:6px;padding:10px 7px;border:1px solid #3b473e;background:#19221c;border-radius:7px;font-size:10px}.preference-toggles button b{width:14px;height:14px;border:1px solid #657166;border-radius:3px;display:grid;place-items:center;font-size:9px}.preference-toggles button.active{border-color:#799747;color:var(--green);background:#21301f}.preference-toggles button.active b{background:var(--green);color:#172019;border-color:var(--green)}.preference-row{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:14px 16px;border-top:1px solid #303a31}.preference-row b{font-size:11px}.preference-row select{width:auto;min-width:135px;text-align:left}.preference-row input[type="checkbox"]{width:38px;height:20px;accent-color:#bfe957}.preference-status{text-align:center;color:var(--green);font-size:9px;padding:9px;border-top:1px solid #303a31}.account-card .signout-button{border:1px solid #5a665c;background:#19211b;color:#c9d1ca;border-radius:7px;padding:10px 22px}.account-card .signout-button:hover{border-color:#819084}@media(max-width:520px){.preference-toggles{grid-template-columns:1fr}.preference-row{align-items:flex-start;flex-direction:column}.preference-row select{width:100%}}
+ .map-canvas{transform:none;transform-origin:initial;transition:none;background:#13201a;overflow:hidden}.tile-layer{position:absolute;inset:0;filter:saturate(.55) brightness(.64) contrast(1.13)}.tile-layer img{position:absolute;width:256px;height:256px;max-width:none;user-select:none;pointer-events:none}.map-attribution{position:absolute;z-index:7;right:8px;bottom:79px;background:#0c120ecc;color:#aab3aa;padding:3px 6px;border-radius:3px;font-size:8px}.world-map{color:#8fd5cb!important}
+diff --git a/api/server.mjs b/api/server.mjs
+index 640bedb..033e607 100644
+--- a/api/server.mjs
++++ b/api/server.mjs
+@@ -103,6 +103,17 @@ function validateSighting(input) {
+   return { latitude, longitude };
+ }
+ 
++const defaultPreferences = { visible_groups: ["ducks", "geese", "cranes"], default_days: 7, start_view: "us", auto_open_card: true };
++function validatePreferences(input = {}) {
++  const groups = Array.isArray(input.visible_groups) ? input.visible_groups.filter(v => ["ducks", "geese", "cranes"].includes(v)) : defaultPreferences.visible_groups;
++  return {
++    visible_groups: [...new Set(groups)],
++    default_days: [1, 7, 30, 90].includes(Number(input.default_days)) ? Number(input.default_days) : 7,
++    start_view: ["us", "world", "my_area"].includes(input.start_view) ? input.start_view : "us",
++    auto_open_card: input.auto_open_card !== false,
++  };
++}
++
+ const server = http.createServer(async (req, res) => {
+   const origin = req.headers.origin;
+   if (req.method === "OPTIONS") { res.writeHead(origin && ALLOWED_ORIGINS.has(origin) ? 204 : 403, cors(origin)); return res.end(); }
+@@ -145,7 +156,18 @@ const server = http.createServer(async (req, res) => {
+     if (req.method === "GET" && url.pathname === "/api/profile") {
+       const { user } = await currentUser(req);
+       await ensureProfile(user);
+-      return json(res, 200, { id: user.id, email: user.email, display_name: user.user_metadata?.display_name || user.email?.split("@")[0] }, origin);
++      const rows = await supabase(`/rest/v1/profiles?id=eq.${user.id}&select=display_name,preferences`);
++      return json(res, 200, { id: user.id, email: user.email, display_name: rows[0]?.display_name || user.email?.split("@")[0], preferences: validatePreferences(rows[0]?.preferences) }, origin);
++    }
++
++    if (req.method === "PATCH" && url.pathname === "/api/profile") {
++      rateLimit(req, 30);
++      const { user } = await currentUser(req);
++      await ensureProfile(user);
++      const input = await body(req);
++      const preferences = validatePreferences(input.preferences);
++      await supabase(`/rest/v1/profiles?id=eq.${user.id}`, { method: "PATCH", data: { preferences }, prefer: "return=minimal" });
++      return json(res, 200, { preferences }, origin);
+     }
+ 
+     if (req.method === "GET" && url.pathname === "/api/sightings") {
+diff --git a/supabase/schema.sql b/supabase/schema.sql
+index 7b9e256..95ff3ac 100644
+--- a/supabase/schema.sql
++++ b/supabase/schema.sql
+@@ -10,6 +10,7 @@ create table public.profiles (
+   trust_score smallint not null default 50 check (trust_score between 0 and 100),
+   report_count integer not null default 0,
+   confirmed_count integer not null default 0,
++  preferences jsonb not null default '{"visible_groups":["ducks","geese","cranes"],"default_days":7,"start_view":"us","auto_open_card":true}'::jsonb check (jsonb_typeof(preferences) = 'object'),
+   created_at timestamptz not null default now(),
+   updated_at timestamptz not null default now()
+ );
+diff --git a/supabase/migrate_account_preferences.sql b/supabase/migrate_account_preferences.sql
+index e69de29..b8092d1 100644
+--- a/supabase/migrate_account_preferences.sql
++++ b/supabase/migrate_account_preferences.sql
+@@ -0,0 +1,10 @@
++begin;
++
++alter table public.profiles
++  add column if not exists preferences jsonb not null default '{"visible_groups":["ducks","geese","cranes"],"default_days":7,"start_view":"us","auto_open_card":true}'::jsonb;
++
++alter table public.profiles drop constraint if exists profiles_preferences_object;
++alter table public.profiles add constraint profiles_preferences_object
++  check (jsonb_typeof(preferences) = 'object');
++
++commit;

@@ -1,0 +1,316 @@
+diff --git a/app/page.tsx b/app/page.tsx
+index 3db262b..66691e8 100644
+--- a/app/page.tsx
++++ b/app/page.tsx
+@@ -6,12 +6,13 @@ const API = process.env.NEXT_PUBLIC_API_URL || "https://flyway-api.zileslabs.com
+ type LiveReport = { id:string; species:string; flock_size:string; behavior:string; zone_latitude:number; zone_longitude:number; confidence:number; occurred_at:string; confirmations:number };
+ type MapReport = LiveReport & { x:number; y:number; size:number; color:string; age:string };
+ type Panel = "map" | "activity" | "saved" | "more";
+-type Filter = "all" | "dabblers" | "divers";
++type Filter = "all" | "ducks" | "geese" | "cranes";
+ type MapCenter = { lat:number; lon:number };
+ 
+-const labels: Record<string,string> = { mallard:"Mallard",teal:"Teal",gadwall:"Gadwall",pintail:"Pintail",wood_duck:"Wood duck",diver:"Diver",mixed:"Mixed ducks",other:"Other ducks",feeding:"Feeding",circling:"Circling",flying_over:"Flying over",resting:"Resting on water",moving_in:"Moving into area" };
+-const colors: Record<string,string> = { mallard:"green",teal:"blue",mixed:"gold",gadwall:"gray" };
+-const speciesValues: Record<string,string> = { Mallard:"mallard",Teal:"teal",Gadwall:"gadwall","Mixed ducks":"mixed" };
++const labels: Record<string,string> = { mallard:"Mallard",teal:"Teal",gadwall:"Gadwall",pintail:"Pintail",wood_duck:"Wood duck",diver:"Diving duck",mixed:"Mixed ducks",other:"Other migratory bird",canada_goose:"Canada goose",snow_goose:"Snow goose",white_fronted_goose:"White-fronted goose",sandhill_crane:"Sandhill crane",tundra_swan:"Tundra swan",feeding:"Feeding",circling:"Circling",flying_over:"Flying over",resting:"Resting on water",moving_in:"Moving into area" };
++const colors: Record<string,string> = { mallard:"green",teal:"blue",mixed:"gold",gadwall:"gray",canada_goose:"gold",snow_goose:"blue",white_fronted_goose:"gold",sandhill_crane:"gray",tundra_swan:"blue" };
++const speciesValues: Record<string,string> = { Mallard:"mallard",Teal:"teal",Gadwall:"gadwall",Pintail:"pintail","Mixed ducks":"mixed","Canada goose":"canada_goose","Snow goose":"snow_goose","White-fronted goose":"white_fronted_goose","Sandhill crane":"sandhill_crane","Tundra swan":"tundra_swan" };
++const geese=new Set(["canada_goose","snow_goose","white_fronted_goose","tundra_swan"]);
+ const amountValues: Record<string,string> = { "1–10":"1-10","10–25":"10-25","25–50":"25-50","50+":"50+" };
+ 
+ function age(iso:string){ const m=Math.max(1,Math.floor((Date.now()-new Date(iso).getTime())/60000)); return m<60?`${m}m`:`${Math.floor(m/60)}h`; }
+@@ -26,6 +27,7 @@ export default function Home(){
+   const [loading,setLoading]=useState(true);
+   const [panel,setPanel]=useState<Panel>("map");
+   const [filter,setFilter]=useState<Filter>("all");
++  const [timeDays,setTimeDays]=useState(7);
+   const [savedIds,setSavedIds]=useState<string[]>([]);
+   const [detailId,setDetailId]=useState("");
+   const [zoom,setZoom]=useState(4);
+@@ -39,14 +41,15 @@ export default function Home(){
+   const [token,setToken]=useState(""); const [profile,setProfile]=useState<{display_name:string}|null>(null);
+   const [species,setSpecies]=useState("Mallard"); const [amount,setAmount]=useState("25–50"); const [behavior,setBehavior]=useState("feeding"); const [status,setStatus]=useState("");
+ 
+-  const visibleReports=useMemo(()=>reports.filter(r=>filter==="all"||(filter==="divers"?r.species==="diver":r.species!=="diver")),[reports,filter]);
++  const visibleReports=useMemo(()=>reports.filter(r=>filter==="all"||(filter==="geese"?geese.has(r.species):filter==="cranes"?r.species==="sandhill_crane":!geese.has(r.species)&&r.species!=="sandhill_crane")),[reports,filter]);
+   const savedReports=useMemo(()=>reports.filter(r=>savedIds.includes(r.id)),[reports,savedIds]);
+   const selected=useMemo(()=>reports.find(r=>r.id===selectedId)||visibleReports[0],[reports,visibleReports,selectedId]);
+   const detail=useMemo(()=>reports.find(r=>r.id===detailId),[reports,detailId]);
+   const mapGeometry=useMemo(()=>{const centerPx=project(center.lat,center.lon,zoom);const size=256*2**zoom;const minX=Math.floor((centerPx.x-viewport.width/2)/256)-1,maxX=Math.floor((centerPx.x+viewport.width/2)/256)+1,minY=Math.max(0,Math.floor((centerPx.y-viewport.height/2)/256)-1),maxY=Math.min(2**zoom-1,Math.floor((centerPx.y+viewport.height/2)/256)+1);const tiles=[];for(let y=minY;y<=maxY;y++)for(let x=minX;x<=maxX;x++){const wrapped=((x%(2**zoom))+2**zoom)%(2**zoom);tiles.push({key:`${zoom}-${x}-${y}`,url:`https://tile.openstreetmap.org/${zoom}/${wrapped}/${y}.png`,left:x*256-centerPx.x+viewport.width/2,top:y*256-centerPx.y+viewport.height/2});}return{tiles,centerPx,size};},[center,zoom,viewport]);
+ 
+-  async function load(){ try{ const data=await request("/api/sightings"); const mapped=(data.sightings||[]).map((r:LiveReport)=>({...r,x:position(r.zone_latitude,1),y:position(r.zone_longitude,2),size:r.flock_size==="50+"?108:r.flock_size==="25-50"?92:68,color:colors[r.species]||"gray",age:age(r.occurred_at)})); setReports(mapped); if(mapped[0]) setSelectedId(v=>v||mapped[0].id); } finally{setLoading(false);} }
+-  useEffect(()=>{ load(); const resize=()=>setViewport({width:window.innerWidth,height:window.innerHeight});resize();window.addEventListener("resize",resize);setSavedIds(JSON.parse(localStorage.getItem("flyway_saved")||"[]")); const saved=localStorage.getItem("flyway_session"); if(saved){ const s=JSON.parse(saved); setToken(s.access_token); request("/api/profile",{headers:{Authorization:`Bearer ${s.access_token}`}}).then(setProfile).catch(()=>localStorage.removeItem("flyway_session")); } return()=>window.removeEventListener("resize",resize); },[]);
++  async function load(){ try{ const data=await request(`/api/sightings?days=${timeDays}&limit=250`); const mapped=(data.sightings||[]).map((r:LiveReport)=>({...r,x:position(r.zone_latitude,1),y:position(r.zone_longitude,2),size:r.flock_size==="50+"?108:r.flock_size==="25-50"?92:68,color:colors[r.species]||"gray",age:age(r.occurred_at)})); setReports(mapped); if(mapped[0]) setSelectedId(v=>v||mapped[0].id); } finally{setLoading(false);} }
++  useEffect(()=>{ const resize=()=>setViewport({width:window.innerWidth,height:window.innerHeight});resize();window.addEventListener("resize",resize);setSavedIds(JSON.parse(localStorage.getItem("flyway_saved")||"[]")); const saved=localStorage.getItem("flyway_session"); if(saved){ const s=JSON.parse(saved); setToken(s.access_token); request("/api/profile",{headers:{Authorization:`Bearer ${s.access_token}`}}).then(setProfile).catch(()=>localStorage.removeItem("flyway_session")); } return()=>window.removeEventListener("resize",resize); },[]);
++  useEffect(()=>{setLoading(true);load();},[timeDays]);
+ 
+   function showReport(id:string){ setSelectedId(id); setDetailId(id); setPanel("map"); }
+   function openDetail(id:string){ setSelectedId(id); setDetailId(id); }
+@@ -64,8 +67,8 @@ export default function Home(){
+   const reportList=(items:MapReport[],empty:string)=><div className="activity-list">{items.length?items.map(r=><button className="activity-row" key={r.id} onClick={()=>showReport(r.id)}><span className={`duck-badge ${r.color}`}>⌁</span><span><b>{labels[r.species]}</b><small>{r.flock_size} birds · {labels[r.behavior]}</small></span><span className="row-meta">{r.age}<small>{r.confidence}% confidence</small></span></button>):<div className="panel-empty">{empty}</div>}</div>;
+ 
+   return <main className="app-shell"><section className="map" aria-label="Duck activity map">
+-    <header className="topbar"><div className="brand"><div className="brandmark">F</div><div><strong>FLYWAY</strong><span>DUCK ACTIVITY, NOT HUNTING SPOTS</span></div></div><button className="area" onClick={resetMap}><span><small>LIVE WORLD MAP</small>{zoom<=3?"Worldwide duck activity":zoom<=5?"United States activity":`${Math.abs(center.lat).toFixed(1)}°${center.lat>=0?"N":"S"}, ${Math.abs(center.lon).toFixed(1)}°${center.lon>=0?"E":"W"}`}</span></button><div className="weather"><span>◎</span><div><b>Global</b><small>Pan anywhere · Live reports</small></div></div><button className="avatar" onClick={()=>profile?setPanel("more"):setAuthOpen(true)} aria-label={profile?"Open account":"Sign in"}>{profile?.display_name?.slice(0,2).toUpperCase()||"IN"}</button></header>
+-    {panel==="map"&&<><aside className="filters">{(["all","dabblers","divers"] as Filter[]).map(value=><button key={value} className={`filter ${filter===value?"active":""}`} onClick={()=>setFilter(value)}>{value==="all"?"All ducks":value[0].toUpperCase()+value.slice(1)}</button>)}</aside>
++    <header className="topbar"><div className="brand"><div className="brandmark">F</div><div><strong>FLYWAY</strong><span>MIGRATORY ACTIVITY, NOT HUNTING SPOTS</span></div></div><button className="area" onClick={resetMap}><span><small>LIVE WORLD MAP</small>{zoom<=3?"Worldwide duck activity":zoom<=5?"United States activity":`${Math.abs(center.lat).toFixed(1)}°${center.lat>=0?"N":"S"}, ${Math.abs(center.lon).toFixed(1)}°${center.lon>=0?"E":"W"}`}</span></button><div className="weather"><span>◎</span><div><b>Global</b><small>Pan anywhere · Live reports</small></div></div><button className="avatar" onClick={()=>profile?setPanel("more"):setAuthOpen(true)} aria-label={profile?"Open account":"Sign in"}>{profile?.display_name?.slice(0,2).toUpperCase()||"IN"}</button></header>
++    {panel==="map"&&<><aside className="filters">{(["all","ducks","geese","cranes"] as Filter[]).map(value=><button key={value} className={`filter ${filter===value?"active":""}`} onClick={()=>setFilter(value)}>{value==="all"?"All birds":value[0].toUpperCase()+value.slice(1)}</button>)}<select className="time-filter" value={timeDays} onChange={e=>setTimeDays(Number(e.target.value))} aria-label="Sighting age"><option value={1}>Past 24 hours</option><option value={7}>Past 7 days</option><option value={30}>Past 30 days</option><option value={90}>Past 90 days</option></select></aside>
+     <div className="map-canvas" onWheel={e=>changeZoom(e.deltaY<0?1:-1)} onPointerDown={e=>{if((e.target as HTMLElement).closest("button"))return;const p=project(center.lat,center.lon,zoom);drag.current={pointerX:e.clientX,pointerY:e.clientY,centerX:p.x,centerY:p.y};e.currentTarget.setPointerCapture(e.pointerId)}} onPointerMove={e=>{if(drag.current)setCenter(unproject(drag.current.centerX-(e.clientX-drag.current.pointerX),drag.current.centerY-(e.clientY-drag.current.pointerY),zoom))}} onPointerUp={()=>{drag.current=null}} onPointerCancel={()=>{drag.current=null}}>
+       <div className="tile-layer">{mapGeometry.tiles.map(tile=><img key={tile.key} src={tile.url} alt="" draggable={false} style={{left:tile.left,top:tile.top}}/>)}</div>
+       {visibleReports.map(r=>{const point=markerPosition(r);return <button aria-label={`Open ${labels[r.species]} report, ${r.flock_size} birds`} key={r.id} onClick={()=>openDetail(r.id)} className={`hotspot ${r.color} ${selected?.id===r.id?"selected":""}`} style={{left:point.left,top:point.top,width:r.size,height:r.size}}><span>{r.flock_size}</span></button>})}
+@@ -74,10 +77,10 @@ export default function Home(){
+     <div className="map-controls" aria-label="Map controls"><button onClick={()=>changeZoom(1)} aria-label="Zoom in">+</button><button onClick={()=>changeZoom(-1)} aria-label="Zoom out">−</button><button className="reset-map" onClick={locateMe} aria-label="Go to my location">⌖</button><button className="world-map" onClick={()=>{setZoom(2);setCenter({lat:20,lon:0})}} aria-label="Show world">◎</button><span>ZOOM {zoom}</span></div><div className="map-attribution">© OpenStreetMap contributors</div>
+     {selected&&visibleReports.some(r=>r.id===selected.id)&&<section className="report-card"><div className="report-head"><div className={`duck-badge ${selected.color}`}>⌁</div><div><span className="eyebrow">LIVE ACTIVITY · {selected.age.toUpperCase()} AGO</span><h2>{labels[selected.species]}</h2></div><button className={`save-btn ${savedIds.includes(selected.id)?"saved":""}`} onClick={()=>toggleSaved(selected.id)} aria-label={savedIds.includes(selected.id)?"Remove saved sighting":"Save sighting"}>{savedIds.includes(selected.id)?"★":"☆"}</button><div className="confidence"><b>{selected.confidence}%</b><span>CONFIDENCE</span></div></div><div className="stats"><div><span>ESTIMATED FLOCK</span><strong>{selected.flock_size} birds</strong></div><div><span>BEHAVIOR</span><strong>{labels[selected.behavior]}</strong></div><div><span>CONFIRMED</span><strong className="up">{selected.confirmations} hunters</strong></div></div><div className="privacy"><span><b>Location protected</b>This report is displayed as a randomized activity zone. The hunter’s exact spot is never returned.</span></div><div className="confirm"><span>Seen them too?</span><button className="confirm-btn" onClick={confirm}>✓ Confirm activity</button></div></section>}</>}
+     {panel!=="map"&&<section className="content-panel"><div className="panel-head"><div><span className="eyebrow">FLYWAY NETWORK</span><h2>{panel==="activity"?"Recent activity":panel==="saved"?"Saved sightings":"Your account"}</h2></div>{panel==="activity"&&<button onClick={load}>↻ Refresh</button>}</div>{panel==="activity"&&reportList(reports,"No recent reports yet.")}{panel==="saved"&&reportList(savedReports,"Save useful sightings from the map and they’ll appear here on this device.")}{panel==="more"&&<div className="account-card"><div className="account-avatar">{profile?.display_name?.slice(0,2).toUpperCase()||"IN"}</div><h3>{profile?.display_name||"Hunter"}</h3><p>Reports protect exact coordinates by publishing only randomized activity zones.</p><button className="confirm-btn" onClick={logout}>Sign out</button></div>}</section>}
+-    <nav className="bottom-nav"><button className={panel==="map"?"active":""} onClick={()=>setPanel("map")}><span className="icon">⌖</span>Map</button><button className={panel==="activity"?"active":""} onClick={()=>setPanel("activity")}><span className="icon">≡</span>Activity</button><button className="report-button" onClick={openReport}><span>＋</span>Report ducks</button><button className={panel==="saved"?"active":""} onClick={()=>setPanel("saved")}><span className="icon">☆</span>Saved</button><button className={panel==="more"?"active":""} onClick={()=>profile?setPanel("more"):setAuthOpen(true)}><span className="icon">◌</span>{profile?"Account":"Sign in"}</button></nav>
++    <nav className="bottom-nav"><button className={panel==="map"?"active":""} onClick={()=>setPanel("map")}><span className="icon">⌖</span>Map</button><button className={panel==="activity"?"active":""} onClick={()=>setPanel("activity")}><span className="icon">≡</span>Activity</button><button className="report-button" onClick={openReport}><span>＋</span>Report birds</button><button className={panel==="saved"?"active":""} onClick={()=>setPanel("saved")}><span className="icon">☆</span>Saved</button><button className={panel==="more"?"active":""} onClick={()=>profile?setPanel("more"):setAuthOpen(true)}><span className="icon">◌</span>{profile?"Account":"Sign in"}</button></nav>
+   </section>
+-  {detail&&<div className="modal-wrap" onClick={()=>setDetailId("")}><article className="modal detail-modal" onClick={e=>e.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">PROTECTED ACTIVITY ZONE · {detail.age.toUpperCase()} AGO</span><h2>{labels[detail.species]}</h2></div><button onClick={()=>setDetailId("")} aria-label="Close details">×</button></div><div className="detail-hero"><div className={`duck-badge ${detail.color}`}>⌁</div><div><b>{detail.flock_size} birds</b><span>{labels[detail.behavior]}</span></div><div className="detail-confidence"><b>{detail.confidence}%</b><span>confidence</span></div></div><div className="detail-grid"><div><span>REPORTED</span><b>{new Date(detail.occurred_at).toLocaleString()}</b></div><div><span>COMMUNITY</span><b>{detail.confirmations} confirmations</b></div><div><span>LOCATION</span><b>Randomized activity zone</b></div><div><span>SPECIES GROUP</span><b>{detail.species==="diver"?"Diver":"Dabbler / mixed"}</b></div></div><div className="shield"><span>◉</span><div><b>Exact location hidden</b><p>The map displays a randomized zone. The reporting hunter’s exact coordinates, route, and blind are never shown.</p></div></div><div className="detail-actions"><button className={`save-detail ${savedIds.includes(detail.id)?"saved":""}`} onClick={()=>toggleSaved(detail.id)}>{savedIds.includes(detail.id)?"★ Saved":"☆ Save sighting"}</button><button className="confirm-btn" onClick={confirm}>✓ Confirm activity</button></div></article></div>}
+-  {reporting&&<div className="modal-wrap"><div className="modal"><div className="modal-head"><div><span className="eyebrow">COMMUNITY SIGHTING</span><h2>Report duck activity</h2></div><button onClick={()=>setReporting(false)}>×</button></div><div className="shield"><span>◉</span><div><b>Your location will be blurred</b><p>Hunters receive a randomized activity zone—not your pin, route, or blind.</p></div></div><label>What did you see?</label><div className="choice-grid">{Object.keys(speciesValues).map(s=><button className={species===s?"active":""} onClick={()=>setSpecies(s)} key={s}>{s}</button>)}</div><label>How many?</label><div className="choice-grid four">{Object.keys(amountValues).map(a=><button className={amount===a?"active":""} onClick={()=>setAmount(a)} key={a}>{a}</button>)}</div><label>What were they doing?</label><select value={behavior} onChange={e=>setBehavior(e.target.value)}><option value="feeding">Feeding</option><option value="circling">Circling</option><option value="flying_over">Flying over</option><option value="resting">Resting on water</option><option value="moving_in">Moving into area</option></select><button className="share" onClick={submit}>Share protected report →</button>{status&&<p className="form-status">{status}</p>}</div></div>}
++  {detail&&<div className="modal-wrap" onClick={()=>setDetailId("")}><article className="modal detail-modal" onClick={e=>e.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">PROTECTED ACTIVITY ZONE · {detail.age.toUpperCase()} AGO</span><h2>{labels[detail.species]}</h2></div><button onClick={()=>setDetailId("")} aria-label="Close details">×</button></div><div className="detail-hero"><div className={`duck-badge ${detail.color}`}>⌁</div><div><b>{detail.flock_size} birds</b><span>{labels[detail.behavior]}</span></div><div className="detail-confidence"><b>{detail.confidence}%</b><span>confidence</span></div></div><div className="detail-grid"><div><span>REPORTED</span><b>{new Date(detail.occurred_at).toLocaleString()}</b></div><div><span>COMMUNITY</span><b>{detail.confirmations} confirmations</b></div><div><span>LOCATION</span><b>Randomized activity zone</b></div><div><span>SPECIES GROUP</span><b>{detail.species==="sandhill_crane"?"Crane":geese.has(detail.species)?"Goose / swan":"Duck"}</b></div></div><div className="shield"><span>◉</span><div><b>Exact location hidden</b><p>The map displays a randomized zone. The reporting hunter’s exact coordinates, route, and blind are never shown.</p></div></div><div className="detail-actions"><button className={`save-detail ${savedIds.includes(detail.id)?"saved":""}`} onClick={()=>toggleSaved(detail.id)}>{savedIds.includes(detail.id)?"★ Saved":"☆ Save sighting"}</button><button className="confirm-btn" onClick={confirm}>✓ Confirm activity</button></div></article></div>}
++  {reporting&&<div className="modal-wrap"><div className="modal"><div className="modal-head"><div><span className="eyebrow">COMMUNITY SIGHTING</span><h2>Report migratory bird activity</h2></div><button onClick={()=>setReporting(false)}>×</button></div><div className="shield"><span>◉</span><div><b>Your location will be blurred</b><p>Hunters receive a randomized activity zone—not your pin, route, or blind.</p></div></div><label>What did you see?</label><div className="choice-grid">{Object.keys(speciesValues).map(s=><button className={species===s?"active":""} onClick={()=>setSpecies(s)} key={s}>{s}</button>)}</div><label>How many?</label><div className="choice-grid four">{Object.keys(amountValues).map(a=><button className={amount===a?"active":""} onClick={()=>setAmount(a)} key={a}>{a}</button>)}</div><label>What were they doing?</label><select value={behavior} onChange={e=>setBehavior(e.target.value)}><option value="feeding">Feeding</option><option value="circling">Circling</option><option value="flying_over">Flying over</option><option value="resting">Resting on water</option><option value="moving_in">Moving into area</option></select><button className="share" onClick={submit}>Share protected report →</button>{status&&<p className="form-status">{status}</p>}</div></div>}
+   {authOpen&&<div className="modal-wrap"><div className="modal auth-modal"><div className="modal-head"><div><span className="eyebrow">HUNTER ACCOUNT</span><h2>{authMode==="login"?"Welcome back":"Join Flyway"}</h2></div><button onClick={()=>setAuthOpen(false)}>×</button></div>{authMode==="signup"&&<><label>Display name</label><input value={displayName} onChange={e=>setDisplayName(e.target.value)} placeholder="Marsh Hunter"/></>}<label>Email</label><input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="hunter@example.com"/><label>Password</label><input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="8 characters minimum"/><button className="share" onClick={authenticate}>{authMode==="login"?"Sign in":"Create account"}</button>{authError&&<p className="form-status error">{authError}</p>}<button className="auth-switch" onClick={()=>setAuthMode(authMode==="login"?"signup":"login")}>{authMode==="login"?"New to Flyway? Create an account":"Already have an account? Sign in"}</button></div></div>}
+   </main>;
+ }
+diff --git a/app/globals.css b/app/globals.css
+index 7f5e07d..7fa9e1c 100644
+--- a/app/globals.css
++++ b/app/globals.css
+@@ -30,4 +30,5 @@ button { cursor:pointer; color:inherit; }
+ @media(max-width:720px){.content-panel{top:78px;bottom:78px;width:calc(100% - 20px)}.panel-head{padding:17px}.confirm{display:flex;padding:0 10px 11px}.confirm>span{display:none}.confirm-btn{width:100%}.save-btn{width:32px;height:32px}.confidence{padding-right:0}.activity-row{padding:12px 8px}}
+ .map-canvas{position:absolute;inset:0;transform-origin:center;touch-action:none;cursor:grab;transition:transform .12s ease-out}.map-canvas:active{cursor:grabbing}.map-controls{position:absolute;z-index:8;right:22px;top:96px;display:grid;grid-template-columns:42px;gap:6px}.map-controls button{width:42px;height:42px;border:1px solid #465147;background:#111914ee;border-radius:8px;font-size:21px;box-shadow:0 8px 24px #0006}.map-controls .reset-map{font-size:18px;color:var(--green)}.map-controls span{text-align:center;font-size:8px;color:#a4afa5;background:#111914cc;border-radius:5px;padding:4px}.detail-modal{width:min(570px,100%)}.detail-hero{display:flex;align-items:center;gap:14px;margin:20px 0;padding:17px;background:#18221b;border:1px solid #344037;border-radius:10px}.detail-hero .duck-badge{width:54px;height:54px;font-size:28px}.detail-hero>div:nth-child(2){display:flex;flex-direction:column}.detail-hero>div:nth-child(2) b{font:21px Georgia,serif}.detail-hero span{color:#98a399;font-size:10px;margin-top:4px}.detail-confidence{margin-left:auto;text-align:right}.detail-confidence b{display:block;color:var(--green);font-size:23px}.detail-grid{display:grid;grid-template-columns:repeat(2,1fr);border:1px solid #303a31;border-radius:9px;overflow:hidden}.detail-grid div{padding:14px;border-right:1px solid #303a31;border-bottom:1px solid #303a31}.detail-grid div:nth-child(2n){border-right:0}.detail-grid div:nth-last-child(-n+2){border-bottom:0}.detail-grid span,.detail-grid b{display:block}.detail-grid span{font-size:7px;letter-spacing:.13em;color:#849087}.detail-grid b{font-size:11px;margin-top:5px}.detail-actions{display:flex;gap:9px}.detail-actions button{flex:1;border-radius:7px;padding:11px;font-weight:700}.save-detail{border:1px solid #465147;background:#19211b;color:#dce8d8}.save-detail.saved{border-color:#668044;color:var(--green)}
+ @media(max-width:720px){.map-controls{right:12px;top:126px}.map-controls button{width:38px;height:38px}.detail-grid{grid-template-columns:1fr}.detail-grid div,.detail-grid div:nth-child(2n),.detail-grid div:nth-last-child(-n+2){border-right:0;border-bottom:1px solid #303a31}.detail-grid div:last-child{border-bottom:0}.detail-actions{flex-direction:column}.detail-modal{max-height:92dvh;overflow:auto}}
++.time-filter{border:1px solid #657164;background:#eef1e9;color:#162019;border-radius:20px;padding:8px 12px;font-size:11px;font-weight:700;box-shadow:0 5px 18px #0005;min-width:132px}
+ .map-canvas{transform:none;transform-origin:initial;transition:none;background:#13201a;overflow:hidden}.tile-layer{position:absolute;inset:0;filter:saturate(.55) brightness(.64) contrast(1.13)}.tile-layer img{position:absolute;width:256px;height:256px;max-width:none;user-select:none;pointer-events:none}.map-attribution{position:absolute;z-index:7;right:8px;bottom:79px;background:#0c120ecc;color:#aab3aa;padding:3px 6px;border-radius:3px;font-size:8px}.world-map{color:#8fd5cb!important}
+diff --git a/api/server.mjs b/api/server.mjs
+index 7d5e5b4..640bedb 100644
+--- a/api/server.mjs
++++ b/api/server.mjs
+@@ -91,7 +91,7 @@ async function ensureProfile(user) {
+   });
+ }
+ 
+-const species = new Set(["mallard", "teal", "gadwall", "pintail", "wood_duck", "diver", "mixed", "other"]);
++const species = new Set(["mallard", "teal", "gadwall", "pintail", "wood_duck", "diver", "mixed", "other", "canada_goose", "snow_goose", "white_fronted_goose", "sandhill_crane", "tundra_swan"]);
+ const flockSizes = new Set(["1-10", "10-25", "25-50", "50+"]);
+ const behaviors = new Set(["feeding", "circling", "flying_over", "resting", "moving_in"]);
+ 
+@@ -150,7 +150,9 @@ const server = http.createServer(async (req, res) => {
+ 
+     if (req.method === "GET" && url.pathname === "/api/sightings") {
+       rateLimit(req, 120);
+-      const rows = await supabase("/rest/v1/rpc/nearby_sightings", { method: "POST", token: ANON_KEY, data: { p_limit: Math.min(Number(url.searchParams.get("limit")) || 100, 250) } });
++      const requestedDays = Number(url.searchParams.get("days")) || 7;
++      const days = [1, 7, 30, 90].includes(requestedDays) ? requestedDays : 7;
++      const rows = await supabase("/rest/v1/rpc/nearby_sightings", { method: "POST", token: ANON_KEY, data: { p_limit: Math.min(Number(url.searchParams.get("limit")) || 100, 250), p_since: new Date(Date.now() - days * 86400000).toISOString() } });
+       return json(res, 200, { sightings: rows }, origin);
+     }
+ 
+diff --git a/supabase/schema.sql b/supabase/schema.sql
+index 07b5c53..7b9e256 100644
+--- a/supabase/schema.sql
++++ b/supabase/schema.sql
+@@ -1,6 +1,6 @@
+ create extension if not exists pgcrypto;
+ 
+-create type public.duck_species as enum ('mallard', 'teal', 'gadwall', 'pintail', 'wood_duck', 'diver', 'mixed', 'other');
++create type public.bird_species as enum ('mallard', 'teal', 'gadwall', 'pintail', 'wood_duck', 'diver', 'mixed', 'other', 'canada_goose', 'snow_goose', 'white_fronted_goose', 'sandhill_crane', 'tundra_swan');
+ create type public.sighting_behavior as enum ('feeding', 'circling', 'flying_over', 'resting', 'moving_in');
+ create type public.flock_band as enum ('1-10', '10-25', '25-50', '50+');
+ 
+@@ -17,7 +17,7 @@ create table public.profiles (
+ create table public.sightings (
+   id uuid primary key default gen_random_uuid(),
+   reporter_id uuid not null references public.profiles(id) on delete cascade,
+-  species public.duck_species not null,
++  species public.bird_species not null,
+   flock_size public.flock_band not null,
+   behavior public.sighting_behavior not null,
+   exact_latitude double precision not null check (exact_latitude between -90 and 90),
+@@ -64,9 +64,9 @@ create policy "insert confirmation" on public.confirmations for insert with chec
+ create policy "read own confirmations" on public.confirmations for select using (hunter_id = auth.uid());
+ create policy "insert flag" on public.flags for insert with check (hunter_id = auth.uid());
+ 
+-create or replace function public.nearby_sightings(p_limit integer default 100)
++create or replace function public.nearby_sightings(p_limit integer default 100, p_since timestamptz default (now() - interval '7 days'))
+ returns table (
+-  id uuid, species public.duck_species, flock_size public.flock_band,
++  id uuid, species public.bird_species, flock_size public.flock_band,
+   behavior public.sighting_behavior, zone_latitude double precision,
+   zone_longitude double precision, confidence smallint, occurred_at timestamptz,
+   expires_at timestamptz, confirmations bigint
+@@ -81,14 +81,14 @@ as $$
+     s.confidence, s.occurred_at, s.expires_at, count(c.hunter_id)
+   from public.sightings s
+   left join public.confirmations c on c.sighting_id = s.id
+-  where s.status = 'active' and s.expires_at > now()
++  where s.status = 'active' and s.occurred_at >= greatest(p_since, now() - interval '90 days')
+   group by s.id
+   order by s.occurred_at desc
+   limit least(greatest(p_limit, 1), 250);
+ $$;
+ 
+-revoke all on function public.nearby_sightings(integer) from public;
+-grant execute on function public.nearby_sightings(integer) to anon, authenticated;
++revoke all on function public.nearby_sightings(integer, timestamptz) from public;
++grant execute on function public.nearby_sightings(integer, timestamptz) to anon, authenticated;
+ 
+ -- Raw sightings are intentionally unavailable to anon/authenticated users.
+ revoke select (exact_latitude, exact_longitude, accuracy_meters) on public.sightings from anon, authenticated;
+diff --git a/supabase/seed_us_flyways.sql b/supabase/seed_us_flyways.sql
+index e69de29..6faa0ed 100644
+--- a/supabase/seed_us_flyways.sql
++++ b/supabase/seed_us_flyways.sql
+@@ -0,0 +1,102 @@
++-- Flyway example sightings for Flyway Duck Activity
++-- Illustrative demo data, not live observations or hunting recommendations.
++-- Coordinates identify broad, publicly known wetland/refuge areas. The app's
++-- nearby_sightings() function still applies its deterministic location blur.
++--
++-- Run after at least one authenticated user/profile exists:
++--   docker exec -i supabase-db psql -U postgres -d postgres < seed_us_flyways.sql
++
++begin;
++
++do $$
++begin
++  if not exists (select 1 from public.profiles) then
++    raise exception 'Create at least one Flyway account/profile before loading seed data';
++  end if;
++end $$;
++
++with reporter as (
++  select id from public.profiles order by created_at limit 1
++), seed (
++  id, species, flock_size, behavior, latitude, longitude,
++  confidence, age_minutes, lifetime_hours
++) as (
++  values
++    -- Pacific Flyway: coastal valleys, Great Basin and western staging wetlands
++    ('f1000000-0000-4000-8000-000000000001'::uuid,'pintail'::public.bird_species,'50+'::public.flock_band,'feeding'::public.sighting_behavior,41.973,-121.565,88,18,8), -- Lower Klamath
++    ('f1000000-0000-4000-8000-000000000002'::uuid,'mixed'::public.bird_species,'50+'::public.flock_band,'resting'::public.sighting_behavior,39.460,-122.190,91,34,9), -- Sacramento NWR
++    ('f1000000-0000-4000-8000-000000000003'::uuid,'gadwall'::public.bird_species,'25-50'::public.flock_band,'feeding'::public.sighting_behavior,38.178,-121.915,79,52,8), -- Suisun Marsh
++    ('f1000000-0000-4000-8000-000000000004'::uuid,'teal'::public.bird_species,'25-50'::public.flock_band,'moving_in'::public.sighting_behavior,36.920,-120.830,82,67,8), -- San Joaquin Valley
++    ('f1000000-0000-4000-8000-000000000005'::uuid,'pintail'::public.bird_species,'10-25'::public.flock_band,'resting'::public.sighting_behavior,33.300,-115.620,74,83,7), -- Salton Sea
++    ('f1000000-0000-4000-8000-000000000006'::uuid,'diver'::public.bird_species,'25-50'::public.flock_band,'resting'::public.sighting_behavior,46.250,-119.250,84,105,9), -- Columbia Basin
++    ('f1000000-0000-4000-8000-000000000007'::uuid,'sandhill_crane'::public.bird_species,'50+'::public.flock_band,'circling'::public.sighting_behavior,41.080,-112.120,86,126,8), -- Great Salt Lake
++    ('f1000000-0000-4000-8000-000000000008'::uuid,'mallard'::public.bird_species,'10-25'::public.flock_band,'feeding'::public.sighting_behavior,43.210,-116.640,73,145,8), -- Snake River Plain
++    ('f1000000-0000-4000-8000-000000000009'::uuid,'mixed'::public.bird_species,'25-50'::public.flock_band,'flying_over'::public.sighting_behavior,47.620,-122.330,77,164,7), -- Puget Sound
++
++    -- Central Flyway: prairie potholes through Plains staging areas to Texas coast
++    ('f2000000-0000-4000-8000-000000000001'::uuid,'mallard'::public.bird_species,'25-50'::public.flock_band,'moving_in'::public.sighting_behavior,48.750,-100.060,87,21,9), -- North Dakota potholes
++    ('f2000000-0000-4000-8000-000000000002'::uuid,'sandhill_crane'::public.bird_species,'50+'::public.flock_band,'feeding'::public.sighting_behavior,40.650,-98.480,90,39,8), -- Rainwater Basin
++    ('f2000000-0000-4000-8000-000000000003'::uuid,'pintail'::public.bird_species,'25-50'::public.flock_band,'resting'::public.sighting_behavior,38.470,-98.650,85,58,9), -- Cheyenne Bottoms
++    ('f2000000-0000-4000-8000-000000000004'::uuid,'gadwall'::public.bird_species,'10-25'::public.flock_band,'feeding'::public.sighting_behavior,37.730,-99.200,76,74,8), -- Quivira region
++    ('f2000000-0000-4000-8000-000000000005'::uuid,'mixed'::public.bird_species,'50+'::public.flock_band,'flying_over'::public.sighting_behavior,34.250,-102.350,83,92,8), -- Southern High Plains playas
++    ('f2000000-0000-4000-8000-000000000006'::uuid,'white_fronted_goose'::public.bird_species,'25-50'::public.flock_band,'resting'::public.sighting_behavior,29.390,-96.120,88,111,9), -- Texas mid-coast
++    ('f2000000-0000-4000-8000-000000000007'::uuid,'teal'::public.bird_species,'50+'::public.flock_band,'feeding'::public.sighting_behavior,28.780,-96.760,89,132,8), -- Aransas coastal prairie
++    ('f2000000-0000-4000-8000-000000000008'::uuid,'mallard'::public.bird_species,'10-25'::public.flock_band,'circling'::public.sighting_behavior,37.640,-105.730,72,151,7), -- San Luis Valley
++    ('f2000000-0000-4000-8000-000000000009'::uuid,'mixed'::public.bird_species,'25-50'::public.flock_band,'moving_in'::public.sighting_behavior,33.800,-106.880,81,173,8), -- Middle Rio Grande
++
++    -- Mississippi Flyway: upper Midwest wetlands down major river corridors
++    ('f3000000-0000-4000-8000-000000000001'::uuid,'canada_goose'::public.bird_species,'50+'::public.flock_band,'feeding'::public.sighting_behavior,47.150,-96.100,92,14,9), -- western Minnesota wetlands
++    ('f3000000-0000-4000-8000-000000000002'::uuid,'diver'::public.bird_species,'25-50'::public.flock_band,'resting'::public.sighting_behavior,43.610,-88.640,84,31,9), -- Horicon Marsh
++    ('f3000000-0000-4000-8000-000000000003'::uuid,'mallard'::public.bird_species,'25-50'::public.flock_band,'moving_in'::public.sighting_behavior,43.850,-91.250,86,48,8), -- Upper Mississippi pools
++    ('f3000000-0000-4000-8000-000000000004'::uuid,'gadwall'::public.bird_species,'10-25'::public.flock_band,'feeding'::public.sighting_behavior,40.000,-90.980,75,66,8), -- Illinois River valley
++    ('f3000000-0000-4000-8000-000000000005'::uuid,'snow_goose'::public.bird_species,'50+'::public.flock_band,'resting'::public.sighting_behavior,36.940,-90.140,90,81,9), -- Mingo wetlands
++    ('f3000000-0000-4000-8000-000000000006'::uuid,'mallard'::public.bird_species,'50+'::public.flock_band,'feeding'::public.sighting_behavior,35.120,-91.260,93,99,9), -- Cache/White River
++    ('f3000000-0000-4000-8000-000000000007'::uuid,'wood_duck'::public.bird_species,'10-25'::public.flock_band,'moving_in'::public.sighting_behavior,36.370,-89.390,78,118,8), -- Reelfoot Lake
++    ('f3000000-0000-4000-8000-000000000008'::uuid,'mixed'::public.bird_species,'25-50'::public.flock_band,'flying_over'::public.sighting_behavior,32.980,-90.970,82,139,8), -- Mississippi Delta
++    ('f3000000-0000-4000-8000-000000000009'::uuid,'teal'::public.bird_species,'50+'::public.flock_band,'feeding'::public.sighting_behavior,29.700,-91.150,88,160,8), -- Atchafalaya Basin
++
++    -- Atlantic Flyway: Great Lakes/Northeast staging to Chesapeake and southeast coast
++    ('f4000000-0000-4000-8000-000000000001'::uuid,'diver'::public.bird_species,'25-50'::public.flock_band,'resting'::public.sighting_behavior,44.560,-73.300,83,24,9), -- Lake Champlain
++    ('f4000000-0000-4000-8000-000000000002'::uuid,'mallard'::public.bird_species,'25-50'::public.flock_band,'feeding'::public.sighting_behavior,42.990,-76.730,80,43,8), -- Montezuma wetlands
++    ('f4000000-0000-4000-8000-000000000003'::uuid,'tundra_swan'::public.bird_species,'50+'::public.flock_band,'flying_over'::public.sighting_behavior,40.850,-72.550,87,61,8), -- Long Island coast
++    ('f4000000-0000-4000-8000-000000000004'::uuid,'snow_goose'::public.bird_species,'50+'::public.flock_band,'resting'::public.sighting_behavior,39.120,-75.450,91,79,9), -- Delaware Bay
++    ('f4000000-0000-4000-8000-000000000005'::uuid,'mallard'::public.bird_species,'25-50'::public.flock_band,'feeding'::public.sighting_behavior,38.430,-76.080,89,96,9), -- Chesapeake Bay
++    ('f4000000-0000-4000-8000-000000000006'::uuid,'canada_goose'::public.bird_species,'10-25'::public.flock_band,'moving_in'::public.sighting_behavior,35.720,-75.510,77,116,8), -- Pea Island/Outer Banks
++    ('f4000000-0000-4000-8000-000000000007'::uuid,'wood_duck'::public.bird_species,'10-25'::public.flock_band,'feeding'::public.sighting_behavior,32.640,-80.430,76,137,8), -- ACE Basin
++    ('f4000000-0000-4000-8000-000000000008'::uuid,'teal'::public.bird_species,'25-50'::public.flock_band,'resting'::public.sighting_behavior,30.050,-81.450,82,158,8), -- northeast Florida marshes
++    ('f4000000-0000-4000-8000-000000000009'::uuid,'diver'::public.bird_species,'25-50'::public.flock_band,'resting'::public.sighting_behavior,28.650,-80.730,80,179,8) -- Merritt Island
++)
++insert into public.sightings (
++  id, reporter_id, species, flock_size, behavior,
++  exact_latitude, exact_longitude, accuracy_meters, confidence,
++  occurred_at, expires_at, created_at, status
++)
++select
++  seed.id, reporter.id, seed.species, seed.flock_size, seed.behavior,
++  seed.latitude, seed.longitude, 2500, seed.confidence,
++  now() - make_interval(mins => seed.age_minutes),
++  now() - make_interval(mins => seed.age_minutes) + make_interval(hours => seed.lifetime_hours),
++  now(), 'active'
++from seed cross join reporter
++on conflict (id) do update set
++  reporter_id = excluded.reporter_id,
++  species = excluded.species,
++  flock_size = excluded.flock_size,
++  behavior = excluded.behavior,
++  exact_latitude = excluded.exact_latitude,
++  exact_longitude = excluded.exact_longitude,
++  accuracy_meters = excluded.accuracy_meters,
++  confidence = excluded.confidence,
++  occurred_at = excluded.occurred_at,
++  expires_at = excluded.expires_at,
++  created_at = excluded.created_at,
++  status = 'active';
++
++commit;
++
++-- Confirm the 36 active seed records are visible through the public-safe RPC:
++select count(*) as active_seed_sightings
++from public.sightings
++where id::text ~ '^f[1-4]000000-0000-4000-8000-00000000000[1-9]$'
++  and status = 'active'
++  and expires_at > now();
+diff --git a/supabase/migrate_birds_and_time.sql b/supabase/migrate_birds_and_time.sql
+index e69de29..4cf7b4d 100644
+--- a/supabase/migrate_birds_and_time.sql
++++ b/supabase/migrate_birds_and_time.sql
+@@ -0,0 +1,45 @@
++-- Adds broader migratory-bird species and historical time-window queries.
++-- Safe to run once against an existing Flyway database.
++
++begin;
++
++alter type public.duck_species rename to bird_species;
++alter type public.bird_species add value if not exists 'canada_goose';
++alter type public.bird_species add value if not exists 'snow_goose';
++alter type public.bird_species add value if not exists 'white_fronted_goose';
++alter type public.bird_species add value if not exists 'sandhill_crane';
++alter type public.bird_species add value if not exists 'tundra_swan';
++
++drop function if exists public.nearby_sightings(integer);
++
++create function public.nearby_sightings(
++  p_limit integer default 100,
++  p_since timestamptz default (now() - interval '7 days')
++)
++returns table (
++  id uuid, species public.bird_species, flock_size public.flock_band,
++  behavior public.sighting_behavior, zone_latitude double precision,
++  zone_longitude double precision, confidence smallint, occurred_at timestamptz,
++  expires_at timestamptz, confirmations bigint
++)
++language sql
++security definer
++set search_path = public
++as $$
++  select s.id, s.species, s.flock_size, s.behavior,
++    round((s.exact_latitude + (((('x' || substr(md5(s.id::text || ':lat'), 1, 8))::bit(32)::bigint % 1000) / 1000.0) - .5) * .06)::numeric, 3)::double precision,
++    round((s.exact_longitude + (((('x' || substr(md5(s.id::text || ':lng'), 1, 8))::bit(32)::bigint % 1000) / 1000.0) - .5) * .08)::numeric, 3)::double precision,
++    s.confidence, s.occurred_at, s.expires_at, count(c.hunter_id)
++  from public.sightings s
++  left join public.confirmations c on c.sighting_id = s.id
++  where s.status = 'active'
++    and s.occurred_at >= greatest(p_since, now() - interval '90 days')
++  group by s.id
++  order by s.occurred_at desc
++  limit least(greatest(p_limit, 1), 250);
++$$;
++
++revoke all on function public.nearby_sightings(integer, timestamptz) from public;
++grant execute on function public.nearby_sightings(integer, timestamptz) to anon, authenticated;
++
++commit;
