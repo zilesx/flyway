@@ -67,12 +67,12 @@ with reporter as (
     ('f4000000-0000-4000-8000-000000000009'::uuid,'diver'::public.bird_species,'25-50'::public.flock_band,'resting'::public.sighting_behavior,28.650,-80.730,80,179,8) -- Merritt Island
 )
 insert into public.sightings (
-  id, reporter_id, species, flock_size, behavior,
+  id, reporter_id, species, species_slug, flock_size, behavior,
   exact_latitude, exact_longitude, accuracy_meters, confidence,
   occurred_at, expires_at, created_at, status
 )
 select
-  seed.id, reporter.id, seed.species, seed.flock_size, seed.behavior,
+  seed.id, reporter.id, seed.species, seed.species::text, seed.flock_size, seed.behavior,
   seed.latitude, seed.longitude, 2500, seed.confidence,
   now() - make_interval(mins => seed.age_minutes),
   now() - make_interval(mins => seed.age_minutes) + make_interval(hours => seed.lifetime_hours),
@@ -81,6 +81,7 @@ from seed cross join reporter
 on conflict (id) do update set
   reporter_id = excluded.reporter_id,
   species = excluded.species,
+  species_slug = excluded.species_slug,
   flock_size = excluded.flock_size,
   behavior = excluded.behavior,
   exact_latitude = excluded.exact_latitude,

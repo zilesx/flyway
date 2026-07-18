@@ -11,14 +11,20 @@ create table public.profiles (
   report_count integer not null default 0,
   confirmed_count integer not null default 0,
   preferences jsonb not null default '{"visible_groups":["ducks","geese","cranes"],"default_days":7,"start_view":"us","auto_open_card":true}'::jsonb check (jsonb_typeof(preferences) = 'object'),
+  role text not null default 'user' check (role in ('user','moderator','admin')),
+  suspended_until timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
+create table public.bird_categories (slug text primary key, display_name text not null, enabled boolean not null default true, sort_order integer not null default 100);
+create table public.species_catalog (slug text primary key, display_name text not null, category_slug text not null references public.bird_categories(slug), enabled boolean not null default true, sort_order integer not null default 100, created_at timestamptz not null default now(), updated_at timestamptz not null default now());
+
 create table public.sightings (
   id uuid primary key default gen_random_uuid(),
   reporter_id uuid not null references public.profiles(id) on delete cascade,
-  species public.bird_species not null,
+  species public.bird_species,
+  species_slug text not null references public.species_catalog(slug),
   flock_size public.flock_band not null,
   behavior public.sighting_behavior not null,
   notes text check (char_length(notes) <= 1000),
@@ -50,11 +56,15 @@ create table public.flags (
   hunter_id uuid not null references public.profiles(id) on delete cascade,
   reason text not null check (reason in ('false_report', 'unsafe', 'spam', 'other')),
   created_at timestamptz not null default now(),
+  resolved_at timestamptz,
+  resolved_by uuid references public.profiles(id),
   unique (sighting_id, hunter_id)
 );
 
 create table public.sighting_media (id uuid primary key default gen_random_uuid(), sighting_id uuid not null references public.sightings(id) on delete cascade, uploader_id uuid not null references public.profiles(id) on delete cascade, object_path text not null unique, mime_type text not null check (mime_type in ('image/jpeg','image/png','image/webp')), byte_size integer not null check (byte_size between 1 and 5242880), created_at timestamptz not null default now());
 create table public.sighting_comments (id uuid primary key default gen_random_uuid(), sighting_id uuid not null references public.sightings(id) on delete cascade, commenter_id uuid not null references public.profiles(id) on delete cascade, body text not null check (char_length(body) between 1 and 500), created_at timestamptz not null default now());
+create table public.app_config (key text primary key, value jsonb not null, description text, updated_by uuid references public.profiles(id), updated_at timestamptz not null default now());
+create table public.admin_audit_log (id bigint generated always as identity primary key, actor_id uuid references public.profiles(id), action text not null, target_type text not null, target_id text, details jsonb not null default '{}'::jsonb, created_at timestamptz not null default now());
 
 alter table public.profiles enable row level security;
 alter table public.sightings enable row level security;
@@ -62,6 +72,10 @@ alter table public.confirmations enable row level security;
 alter table public.flags enable row level security;
 alter table public.sighting_media enable row level security;
 alter table public.sighting_comments enable row level security;
+alter table public.bird_categories enable row level security;
+alter table public.species_catalog enable row level security;
+alter table public.app_config enable row level security;
+alter table public.admin_audit_log enable row level security;
 
 create policy "read own profile" on public.profiles for select using (id = auth.uid());
 create policy "update own profile" on public.profiles for update using (id = auth.uid()) with check (id = auth.uid());
@@ -73,7 +87,7 @@ create policy "insert flag" on public.flags for insert with check (hunter_id = a
 
 create or replace function public.nearby_sightings(p_limit integer default 100, p_since timestamptz default (now() - interval '7 days'))
 returns table (
-  id uuid, species public.bird_species, flock_size public.flock_band,
+  id uuid, species text, flock_size public.flock_band,
   behavior public.sighting_behavior, zone_latitude double precision,
   zone_longitude double precision, confidence smallint, occurred_at timestamptz,
   expires_at timestamptz, confirmations bigint, notes text
@@ -82,7 +96,7 @@ language sql
 security definer
 set search_path = public
 as $$
-  select s.id, s.species, s.flock_size, s.behavior,
+  select s.id, s.species_slug, s.flock_size, s.behavior,
     round((s.exact_latitude + (((('x' || substr(md5(s.id::text || ':lat'), 1, 8))::bit(32)::bigint % 1000) / 1000.0) - .5) * .06)::numeric, 3)::double precision,
     round((s.exact_longitude + (((('x' || substr(md5(s.id::text || ':lng'), 1, 8))::bit(32)::bigint % 1000) / 1000.0) - .5) * .08)::numeric, 3)::double precision,
     s.confidence, s.occurred_at, s.expires_at, count(c.hunter_id), s.notes
