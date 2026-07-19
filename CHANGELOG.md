@@ -1,5 +1,15 @@
 # Flyway changelog
 
+## 2026-07-19 — Administrator user activity and map report selection
+
+- Added a dedicated administrator-only Activity section to user details with action, outcome, and date filters plus paginated history.
+- Included outcome, target, timestamp, masked network context, device context, session context, and before/after detail access for user write activity.
+- Kept administrator activity views auditable through the existing administrative audit trail.
+- Changed report and cluster selection so a primary click or tap opens the compact activity card for the selected report.
+- Added privacy-aware reporter attribution and an explicit **View details** action to the compact activity card.
+- Kept the compact card synchronized with the selected map report while allowing the full detail modal to close back to that selection.
+- Prevented right-click and other secondary mouse actions from selecting map reports while preserving keyboard and touch activation.
+
 This changelog is organized around explicit product build approvals and major deployment milestones. Future entries are added whenever the project owner says **“build it.”**
 
 ## 2026-07-19 — Location picker, annual date ranges, audit context, and accessibility
