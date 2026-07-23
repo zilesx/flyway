@@ -1,5 +1,12 @@
 # Flyway changelog
 
+## 2026-07-22 — Dark-theme readability correction
+
+- Increased dark-theme contrast for primary, secondary, muted, placeholder, and disabled text.
+- Strengthened panel, form-field, table-row, modal, and moderation-workspace boundaries.
+- Made map overlays more opaque and improved dark map-tile legibility.
+- Added clearer keyboard focus indicators while preserving the existing Flyway dark visual language.
+
 ## 2026-07-22 — Moderation workspace, appearance themes, and stable activity map
 
 - Redesigned the moderation queue around reporter context, content previews, risk signals, assignment and date filters, and historical status filtering.
