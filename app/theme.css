@@ -33,3 +33,4 @@ body:has(.account-card) .appearance-control{display:flex}
 :root .map-cluster span,:root .map-controls span,:root .heat-legend small{color:#c3cec5}
 :root .avatar,:root .map-attribution,:root .heat-legend{color:#f4f7f2}
 .heat-cell.heat-ducks{color:#36d96f}.heat-cell.heat-geese{color:#168fe7}.heat-cell.heat-cranes{color:#ff8a1e}.heat-cell.heat-doves{color:#f6dc25}.heat-cell.heat-shorebirds{color:#00d6d6}.heat-cell.heat-upland{color:#f0392f}.heat-cell.heat-other{color:#ad4fe8}
+.panel-head .eyebrow{font-size:0}.panel-head .eyebrow:after{content:"FEATHERMAP NETWORK";font-size:8px}.admin-brand b{font-size:0}.admin-brand b:after{content:"FEATHERMAP";font-size:11px}

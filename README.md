@@ -1,6 +1,6 @@
-# Flyway
+# FeatherMap
 
-Flyway is a privacy-first duck activity app for hunters, designed for iOS, Android, and the web. Hunters can share fresh sightings without exposing their blind, route, or exact coordinates.
+FeatherMap is a privacy-first migratory bird activity app for hunters and bird observers, designed for iOS, Android, and the web. People can share fresh observations without exposing a blind, route, or exact coordinates.
 
 ## Current prototype
 
@@ -41,4 +41,4 @@ Run the API on the same server as Supabase without exposing either service direc
 docker compose --env-file .env -f docker-compose.api.yml up -d --build
 ```
 
-The API binds to `127.0.0.1:3001`, reaches Supabase through the Docker host at port `8000`, and is intended to sit behind a Cloudflare Tunnel at `api.yourdomain.com`. The web and mobile apps should call the Flyway API only.
+The API binds to `127.0.0.1:3001`, reaches Supabase through the Docker host at port `8000`, and is intended to sit behind a Cloudflare Tunnel at `api.yourdomain.com`. The web and mobile apps should call the FeatherMap API only.

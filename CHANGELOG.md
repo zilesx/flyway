@@ -1,4 +1,12 @@
-# Flyway changelog
+# FeatherMap changelog
+
+## 2026-07-22 — FeatherMap product rebrand
+
+- Renamed the product from Flyway to FeatherMap across the primary map, account, authentication, recovery, administration, metadata, API messaging, tests, and documentation.
+- Updated the monogram with a feather-inspired CSS treatment while preserving the compact, accessible header footprint.
+- Renamed package metadata to `feathermap` without changing database identifiers or deployment service names.
+- Preserved the existing `flyway-app.zileslabs.com` and `flyway-api.zileslabs.com` domains as requested.
+- Preserved existing browser storage keys so signed-in sessions and saved sightings survive the rebrand.
 
 ## 2026-07-22 — Configurable activity-map visualizations
 

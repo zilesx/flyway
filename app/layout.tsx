@@ -10,8 +10,8 @@ import "./theme.css";
 import AppearanceControl from "./appearance-control";
 
 export const metadata: Metadata = {
-  title: "Flyway — Private Duck Activity",
-  description: "Share fresh duck activity without giving away your hunting spot.",
+  title: "FeatherMap — Private Migratory Bird Activity",
+  description: "Share fresh migratory bird activity without giving away your exact location.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
