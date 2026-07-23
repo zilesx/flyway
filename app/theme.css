@@ -23,3 +23,12 @@ body:has(.account-card) .appearance-control{display:flex}
 :root[data-theme="light"] .appearance-control{background:#f7faf5;border-color:#aebcae;box-shadow:0 14px 45px #24322438}
 @media(max-width:520px){.appearance-control{bottom:139px;flex-direction:column;align-items:stretch}.appearance-control select{width:100%}}
 @media(prefers-color-scheme:light){:root[data-theme="system"] body,:root[data-theme="system"] .admin-page{background:#e9eee8;color:#172019}:root[data-theme="system"] :is(.content-panel,.report-card,.modal,.admin-card,.admin-detail,.admin-sidebar,.admin-workspace,.appearance-control){background:#f7faf5;color:#172019;border-color:#aebcae}:root[data-theme="system"] :is(.bottom-nav,.topbar){background:#f5f8f2ed;color:#172019}:root[data-theme="system"] .tile-layer{filter:saturate(.72) brightness(.94) contrast(1.03)}:root[data-theme="system"] :is(input,select,textarea,.preference-toggles button,.detail-hero,.comments-head){background:#edf2eb!important;color:#172019!important;border-color:#aebcae!important}}
+
+/* Map overlays stay deliberately dark over both basemap themes. */
+:root :is(.area,.filter:not(.active),.map-controls button,.map-controls span,.hotspot span,.map-cluster,.heat-legend,.map-attribution,.avatar){background-color:#132019;color:#f4f7f2;border-color:#526258}
+:root .area :is(small,b){color:#c3cec5}
+:root .filter.active{background:#f4f7f2;color:#142019;border-color:#f4f7f2}
+:root .hotspot span{color:#fff}
+:root .map-cluster b{color:#d8ff70}
+:root .map-cluster span,:root .map-controls span,:root .heat-legend small{color:#c3cec5}
+:root .avatar,:root .map-attribution,:root .heat-legend{color:#f4f7f2}

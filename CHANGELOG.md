@@ -1,5 +1,12 @@
 # Flyway changelog
 
+## 2026-07-22 — Light-theme map contrast correction
+
+- Kept map-overlay controls on an opaque dark surface in Light and System-Light modes so labels remain readable over bright map tiles.
+- Restored clear active and inactive states for bird filters.
+- Corrected contrast for the location card, account avatar, zoom controls, activity markers, clusters, heatmap legend, and map attribution.
+- Added regression coverage for the light-theme map overlay rules.
+
 ## 2026-07-22 — Dark-theme readability correction
 
 - Increased dark-theme contrast for primary, secondary, muted, placeholder, and disabled text.
